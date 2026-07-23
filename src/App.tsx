@@ -338,8 +338,12 @@ function App() {
     }
 
     const user = await db.users.where('email').equals(email).first()
-    if (!user || user.passwordHash !== (await hashPassword(password, user.salt))) {
-      setAuthError('Email o contrasena incorrectos.')
+    if (!user) {
+      setAuthError('No hay ninguna cuenta local con ese email en esta pagina.')
+      return
+    }
+    if (user.passwordHash !== (await hashPassword(password, user.salt))) {
+      setAuthError('Contrasena incorrecta.')
       return
     }
     localStorage.setItem(sessionKey, user.id)
