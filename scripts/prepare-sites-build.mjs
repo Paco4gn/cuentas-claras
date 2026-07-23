@@ -46,11 +46,11 @@ const assetEntries = []
 for (const filePath of await walk(distDir)) {
   const rel = `/${relative(distDir, filePath).split(sep).join('/')}`
   const body = await readFile(filePath, 'utf8')
-  assetEntries.push([rel, body, mimeTypes[extension(filePath)] ?? 'text/plain; charset=utf-8'])
+  assetEntries.push([rel, [body, mimeTypes[extension(filePath)] ?? 'text/plain; charset=utf-8']])
 }
 
 const indexEntry = assetEntries.find(([path]) => path === '/index.html')
-if (indexEntry) assetEntries.push(['/', indexEntry[1], indexEntry[2]])
+if (indexEntry) assetEntries.push(['/', indexEntry[1]])
 
 const worker = `const assets = new Map(${JSON.stringify(assetEntries)});\n\nexport default {\n  async fetch(request) {\n    const url = new URL(request.url);\n    const pathname = decodeURIComponent(url.pathname);\n    const exact = assets.get(pathname);\n    const fallback = assets.get('/index.html');\n    const asset = exact ?? (request.headers.get('accept')?.includes('text/html') ? fallback : undefined);\n\n    if (!asset) {\n      return new Response('Not found', { status: 404 });\n    }\n\n    const [body, contentType] = [asset[0], asset[1]];\n    return new Response(body, {\n      headers: {\n        'content-type': contentType,\n        'cache-control': pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',\n      },\n    });\n  },\n};\n`
 
