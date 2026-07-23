@@ -1,5 +1,8 @@
 const cacheName = 'cuentas-claras-v1'
-const assets = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']
+const scopeUrl = new URL(self.registration.scope)
+const basePath = scopeUrl.pathname.replace(/\/$/, '')
+const withBase = (path) => `${basePath}${path}`
+const assets = [withBase('/'), withBase('/index.html'), withBase('/manifest.webmanifest'), withBase('/favicon.svg')]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(assets)))
@@ -17,6 +20,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return
+  const requestUrl = new URL(event.request.url)
+  if (requestUrl.origin !== location.origin || !requestUrl.pathname.startsWith(`${basePath}/`)) return
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached
