@@ -1,4 +1,4 @@
-const cacheName = 'cuentas-claras-v1'
+const cacheName = 'cuentas-claras-v2'
 const scopeUrl = new URL(self.registration.scope)
 const basePath = scopeUrl.pathname.replace(/\/$/, '')
 const withBase = (path) => `${basePath}${path}`
@@ -22,6 +22,18 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return
   const requestUrl = new URL(event.request.url)
   if (requestUrl.origin !== location.origin || !requestUrl.pathname.startsWith(`${basePath}/`)) return
+  if (event.request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone()
+          caches.open(cacheName).then((cache) => cache.put(event.request, clone))
+          return response
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached ?? caches.match(withBase('/index.html')))),
+    )
+    return
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached

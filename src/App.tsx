@@ -6,10 +6,12 @@ import {
   BarChart3,
   CheckCircle2,
   CircleDollarSign,
+  Copy,
   Download,
   Edit3,
   FileSpreadsheet,
   FileText,
+  KeyRound,
   LogOut,
   Plus,
   ReceiptText,
@@ -35,6 +37,7 @@ type DebtDirection = 'owes_me' | 'i_owe'
 type PaymentDirection = 'person_paid_me' | 'i_paid_person'
 type Tab = 'resumen' | 'nuevo' | 'personas' | 'historial'
 type StatusFilter = 'todos' | RecordStatus
+type AuthMode = 'login' | 'register' | 'recover'
 
 interface User {
   id: string
@@ -43,6 +46,30 @@ interface User {
   passwordHash: string
   salt: string
   createdAt: string
+  authProvider?: 'password' | 'google'
+  googleSub?: string
+  recoveryHash?: string
+  recoverySalt?: string
+}
+
+interface GoogleCredentialResponse {
+  credential?: string
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (options: {
+            callback: (response: GoogleCredentialResponse) => void
+            client_id: string
+          }) => void
+          renderButton: (element: HTMLElement, options: Record<string, string | number | boolean>) => void
+        }
+      }
+    }
+  }
 }
 
 interface Person {
@@ -99,6 +126,7 @@ const db = new CuentaDb()
 const sessionKey = 'cuentas-claras-session'
 const today = new Date().toISOString().slice(0, 10)
 const me: ActorId = 'me'
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
 const statusLabels: Record<RecordStatus, string> = {
   'por-pagar': 'Por pagar',
@@ -120,6 +148,22 @@ const formatMoney = (value: number) =>
   }).format(value)
 
 const uid = () => crypto.randomUUID()
+
+function makeRecoveryCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const chars = Array.from(crypto.getRandomValues(new Uint8Array(12))).map((value) => alphabet[value % alphabet.length])
+  return `CC-${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
+}
+
+function normalizeRecoveryCode(value: string) {
+  return value.replace(/[^a-z0-9]/gi, '').toUpperCase()
+}
+
+function decodeJwtPayload(token: string) {
+  const payload = token.split('.')[1]
+  const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+  return JSON.parse(atob(normalized)) as { email?: string; name?: string; sub?: string }
+}
 
 async function hashPassword(password: string, salt: string) {
   const payload = new TextEncoder().encode(`${salt}:${password}`)
@@ -182,11 +226,17 @@ function csvEscape(value: string | number) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('register')
+  const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [recoveryCode, setRecoveryCode] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const [authError, setAuthError] = useState('')
+  const [authInfo, setAuthInfo] = useState('')
+  const [recoveryCodeToShow, setRecoveryCodeToShow] = useState('')
+  const [changePasswordForm, setChangePasswordForm] = useState({ current: '', next: '', recovery: '' })
+  const [googleReady, setGoogleReady] = useState(false)
   const [people, setPeople] = useState<Person[]>([])
   const [records, setRecords] = useState<LedgerRecord[]>([])
   const [tab, setTab] = useState<Tab>('resumen')
@@ -237,6 +287,44 @@ function App() {
     const timeout = window.setTimeout(() => setNotice(''), 3200)
     return () => window.clearTimeout(timeout)
   }, [notice])
+
+  useEffect(() => {
+    if (currentUser || !googleClientId) return
+    const element = document.getElementById('google-signin')
+    if (!element) return
+
+    const renderButton = () => {
+      if (!window.google) return
+      element.innerHTML = ''
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleLogin,
+      })
+      window.google.accounts.id.renderButton(element, {
+        shape: 'rectangular',
+        size: 'large',
+        text: 'continue_with',
+        theme: 'outline',
+        width: 320,
+      })
+      setGoogleReady(true)
+    }
+
+    if (window.google) {
+      renderButton()
+      return
+    }
+
+    const scriptId = 'google-identity-services'
+    const existingScript = document.getElementById(scriptId) as HTMLScriptElement | null
+    const script = existingScript ?? document.createElement('script')
+    script.id = scriptId
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.onload = renderButton
+    if (!existingScript) document.head.appendChild(script)
+  }, [currentUser, authMode])
 
   const balances = useMemo(() => {
     const map = new Map<string, number>()
@@ -306,11 +394,66 @@ function App() {
     if (!personId && storedPeople[0]) setPersonId(storedPeople[0].id)
   }
 
+  function finishLogin(user: User) {
+    localStorage.setItem(sessionKey, user.id)
+    setCurrentUser(user)
+    setAuthPassword('')
+    setNewPassword('')
+    setRecoveryCode('')
+    setAuthError('')
+    setAuthInfo('')
+  }
+
+  async function handleGoogleLogin(response: GoogleCredentialResponse) {
+    if (!response.credential) return
+    try {
+      const profile = decodeJwtPayload(response.credential)
+      if (!profile.email || !profile.sub) {
+        setAuthError('Google no devolvio un email valido.')
+        return
+      }
+
+      const email = profile.email.trim().toLowerCase()
+      const existingUser = await db.users.where('email').equals(email).first()
+      if (existingUser) {
+        const updatedUser: User = {
+          ...existingUser,
+          authProvider: existingUser.authProvider ?? 'google',
+          googleSub: existingUser.googleSub ?? profile.sub,
+        }
+        await db.users.put(updatedUser)
+        finishLogin(updatedUser)
+        return
+      }
+
+      const user: User = {
+        id: uid(),
+        name: profile.name ?? email.split('@')[0],
+        email,
+        passwordHash: '',
+        salt: '',
+        authProvider: 'google',
+        googleSub: profile.sub,
+        createdAt: new Date().toISOString(),
+      }
+      await db.users.add(user)
+      finishLogin(user)
+    } catch {
+      setAuthError('No se pudo iniciar sesion con Google.')
+    }
+  }
+
   async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setAuthError('')
+    setAuthInfo('')
     const email = authEmail.trim().toLowerCase()
     const password = authPassword.trim()
+    if (authMode === 'recover') {
+      await submitRecovery(email)
+      return
+    }
+
     if (!email || !password || (authMode === 'register' && !authName.trim())) {
       setAuthError('Completa los campos obligatorios.')
       return
@@ -323,17 +466,22 @@ function App() {
         return
       }
       const salt = uid()
+      const nextRecoveryCode = makeRecoveryCode()
+      const recoverySalt = uid()
       const user: User = {
         id: uid(),
         name: authName.trim(),
         email,
         passwordHash: await hashPassword(password, salt),
         salt,
+        authProvider: 'password',
+        recoveryHash: await hashPassword(normalizeRecoveryCode(nextRecoveryCode), recoverySalt),
+        recoverySalt,
         createdAt: new Date().toISOString(),
       }
       await db.users.add(user)
-      localStorage.setItem(sessionKey, user.id)
-      setCurrentUser(user)
+      setRecoveryCodeToShow(nextRecoveryCode)
+      finishLogin(user)
       return
     }
 
@@ -342,12 +490,99 @@ function App() {
       setAuthError('No hay ninguna cuenta local con ese email en esta pagina.')
       return
     }
+    if (!user.passwordHash) {
+      setAuthError('Esta cuenta se creo con Google. Entra con Google o crea una contrasena desde ajustes.')
+      return
+    }
     if (user.passwordHash !== (await hashPassword(password, user.salt))) {
       setAuthError('Contrasena incorrecta.')
       return
     }
-    localStorage.setItem(sessionKey, user.id)
-    setCurrentUser(user)
+    finishLogin(user)
+  }
+
+  async function submitRecovery(email: string) {
+    const code = normalizeRecoveryCode(recoveryCode)
+    const password = newPassword.trim()
+    if (!email || !code || !password) {
+      setAuthError('Pon email, codigo de recuperacion y nueva contrasena.')
+      return
+    }
+    const user = await db.users.where('email').equals(email).first()
+    if (!user?.recoveryHash || !user.recoverySalt) {
+      setAuthError('Esa cuenta no tiene codigo de recuperacion creado en esta pagina.')
+      return
+    }
+    if (user.recoveryHash !== (await hashPassword(code, user.recoverySalt))) {
+      setAuthError('Codigo de recuperacion incorrecto.')
+      return
+    }
+    const salt = uid()
+    const updatedUser: User = {
+      ...user,
+      authProvider: user.authProvider ?? 'password',
+      passwordHash: await hashPassword(password, salt),
+      salt,
+    }
+    await db.users.put(updatedUser)
+    finishLogin(updatedUser)
+    setNotice('Contrasena actualizada.')
+  }
+
+  async function generateRecoveryForCurrentUser() {
+    if (!currentUser) return
+    const nextRecoveryCode = makeRecoveryCode()
+    const recoverySalt = uid()
+    const updatedUser: User = {
+      ...currentUser,
+      recoveryHash: await hashPassword(normalizeRecoveryCode(nextRecoveryCode), recoverySalt),
+      recoverySalt,
+    }
+    await db.users.put(updatedUser)
+    setCurrentUser(updatedUser)
+    setRecoveryCodeToShow(nextRecoveryCode)
+    setNotice('Codigo de recuperacion creado.')
+  }
+
+  async function copyRecoveryCode() {
+    if (!recoveryCodeToShow) return
+    await navigator.clipboard.writeText(recoveryCodeToShow)
+    setNotice('Codigo copiado.')
+  }
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!currentUser) return
+    const next = changePasswordForm.next.trim()
+    if (!next) {
+      setNotice('Pon una contrasena nueva.')
+      return
+    }
+
+    const canUseCurrentPassword =
+      currentUser.passwordHash &&
+      currentUser.passwordHash === (await hashPassword(changePasswordForm.current.trim(), currentUser.salt))
+    const canUseRecovery =
+      currentUser.recoveryHash &&
+      currentUser.recoverySalt &&
+      currentUser.recoveryHash === (await hashPassword(normalizeRecoveryCode(changePasswordForm.recovery), currentUser.recoverySalt))
+
+    if (!canUseCurrentPassword && !canUseRecovery) {
+      setNotice('Contrasena actual o codigo de recuperacion incorrecto.')
+      return
+    }
+
+    const salt = uid()
+    const updatedUser: User = {
+      ...currentUser,
+      authProvider: currentUser.authProvider ?? 'password',
+      passwordHash: await hashPassword(next, salt),
+      salt,
+    }
+    await db.users.put(updatedUser)
+    setCurrentUser(updatedUser)
+    setChangePasswordForm({ current: '', next: '', recovery: '' })
+    setNotice('Contrasena cambiada.')
   }
 
   async function submitPerson(event: React.FormEvent<HTMLFormElement>) {
@@ -648,6 +883,9 @@ function App() {
             <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')} type="button">
               Entrar
             </button>
+            <button className={authMode === 'recover' ? 'active' : ''} onClick={() => setAuthMode('recover')} type="button">
+              Recuperar
+            </button>
           </div>
           <form onSubmit={submitAuth} className="form-grid">
             {authMode === 'register' && (
@@ -660,21 +898,48 @@ function App() {
               Email
               <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} type="email" autoComplete="email" />
             </label>
-            <label>
-              Contrasena
-              <input
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                type="password"
-                autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-              />
-            </label>
+            {authMode !== 'recover' ? (
+              <label>
+                Contrasena
+                <input
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  type="password"
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                />
+              </label>
+            ) : (
+              <>
+                <label>
+                  Codigo de recuperacion
+                  <input value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} placeholder="CC-XXXX-XXXX-XXXX" />
+                </label>
+                <label>
+                  Nueva contrasena
+                  <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" autoComplete="new-password" />
+                </label>
+              </>
+            )}
             {authError && <p className="error-text">{authError}</p>}
+            {authInfo && <p className="info-text">{authInfo}</p>}
             <button className="primary-button" type="submit">
-              <CheckCircle2 aria-hidden="true" />
-              {authMode === 'register' ? 'Crear y entrar' : 'Entrar'}
+              {authMode === 'recover' ? <KeyRound aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+              {authMode === 'register' ? 'Crear y entrar' : authMode === 'recover' ? 'Cambiar y entrar' : 'Entrar'}
             </button>
           </form>
+          <div className="auth-divider">o</div>
+          <div className="google-box">
+            {googleClientId ? (
+              <>
+                <div id="google-signin"></div>
+                {!googleReady && <p className="info-text">Cargando inicio con Google...</p>}
+              </>
+            ) : (
+              <p className="info-text">
+                Google esta preparado, pero falta configurar <code>VITE_GOOGLE_CLIENT_ID</code> para este dominio.
+              </p>
+            )}
+          </div>
         </section>
       </main>
     )
@@ -755,6 +1020,62 @@ function App() {
                 <span>Personas</span>
                 <strong>{people.length}</strong>
               </div>
+            </section>
+
+            <section className="panel account-panel">
+              <div className="section-heading compact">
+                <h2>Cuenta</h2>
+                <KeyRound aria-hidden="true" />
+              </div>
+              <p className="panel-copy">
+                Cambia tu contrasena o crea un codigo para recuperarla si la olvidas.
+              </p>
+              <form className="form-grid" onSubmit={changePassword}>
+                <label>
+                  Contrasena actual
+                  <input
+                    value={changePasswordForm.current}
+                    onChange={(event) => setChangePasswordForm({ ...changePasswordForm, current: event.target.value })}
+                    type="password"
+                    autoComplete="current-password"
+                  />
+                </label>
+                <label>
+                  Codigo de recuperacion
+                  <input
+                    value={changePasswordForm.recovery}
+                    onChange={(event) => setChangePasswordForm({ ...changePasswordForm, recovery: event.target.value })}
+                    placeholder="Alternativa a la contrasena actual"
+                  />
+                </label>
+                <label>
+                  Nueva contrasena
+                  <input
+                    value={changePasswordForm.next}
+                    onChange={(event) => setChangePasswordForm({ ...changePasswordForm, next: event.target.value })}
+                    type="password"
+                    autoComplete="new-password"
+                  />
+                </label>
+                <button className="secondary-button" type="submit">
+                  <Save aria-hidden="true" />
+                  Cambiar contrasena
+                </button>
+              </form>
+              <button className="secondary-button full-button" type="button" onClick={generateRecoveryForCurrentUser}>
+                <KeyRound aria-hidden="true" />
+                {currentUser.recoveryHash ? 'Crear codigo nuevo' : 'Crear codigo de recuperacion'}
+              </button>
+              {recoveryCodeToShow && (
+                <div className="recovery-card">
+                  <span>Guarda este codigo</span>
+                  <strong>{recoveryCodeToShow}</strong>
+                  <button className="secondary-button" type="button" onClick={copyRecoveryCode}>
+                    <Copy aria-hidden="true" />
+                    Copiar
+                  </button>
+                </div>
+              )}
             </section>
 
             <section className="panel">

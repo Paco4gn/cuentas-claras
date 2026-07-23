@@ -431,6 +431,32 @@ button:focus-visible {
   padding: 8px 10px;
 }
 
+.auth-divider {
+  align-items: center;
+  color: var(--text-soft);
+  display: flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 10px;
+  justify-content: center;
+  margin: 14px 0;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  background: var(--border);
+  content: '';
+  height: 1px;
+  flex: 1;
+}
+
+.google-box {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
 .split-box {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -587,8 +613,59 @@ button:focus-visible {
   padding: 10px;
 }
 
+.info-text {
+  background: #e0f2fe;
+  border-radius: 6px;
+  color: #075985;
+  font-size: 13px;
+  margin: 0;
+  padding: 10px;
+}
+
+.info-text code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
 .mini-stats {
   gap: 8px;
+}
+
+.account-panel,
+.account-panel .form-grid {
+  gap: 10px;
+}
+
+.panel-copy {
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.full-button {
+  width: 100%;
+}
+
+.recovery-card {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.recovery-card span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.recovery-card strong {
+  color: var(--text-strong);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 18px;
+  overflow-wrap: anywhere;
 }
 
 .stat-row,
