@@ -12,6 +12,10 @@ PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pago
 - Pagos: "me ha pagado" y "le he pagado".
 - Estados: por pagar, parcial y pagado.
 - Etiquetas, notas, busqueda, borrado, importacion y exportacion JSON.
+- Edicion de personas y movimientos.
+- Liquidacion rapida de saldos con registro de pago en historial.
+- Filtro por estado y exportacion CSV.
+- Resumen de actividad y etiquetas.
 - Instalable en iPhone desde Safari con "Añadir a pantalla de inicio".
 
 ## Privacidad
