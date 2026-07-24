@@ -732,6 +732,9 @@ function App() {
   const shareTotal = participantIds.reduce((sum, id) => sum + Number(shares[id] ?? 0), 0)
   const splitDifference = Number((Number(amount || 0) - shareTotal).toFixed(2))
   const selectedPersonBalance = personId ? balances.get(personId) ?? 0 : 0
+  const exposureTotal = summary.owedToMe + summary.owedByMe
+  const owedToMePercent = exposureTotal ? Math.round((summary.owedToMe / exposureTotal) * 100) : 50
+  const owedByMePercent = exposureTotal ? 100 - owedToMePercent : 50
 
   async function refreshData(ledgerId = activeLedgerId) {
     if (!ledgerId) return
@@ -1739,6 +1742,21 @@ function App() {
         <Metric icon={<ArrowUpRight aria-hidden="true" />} label="Me deben" value={summary.owedToMe} tone="positive" />
         <Metric icon={<ArrowDownLeft aria-hidden="true" />} label="Debo" value={summary.owedByMe} tone="negative" />
         <Metric icon={<CircleDollarSign aria-hidden="true" />} label="Saldo neto" value={summary.net} tone={summary.net >= 0 ? 'positive' : 'negative'} />
+      </section>
+
+      <section className="balance-rail" aria-label="Balance visual">
+        <div>
+          <span>Me deben</span>
+          <strong>{formatMoney(summary.owedToMe)}</strong>
+        </div>
+        <div className="rail-track" aria-hidden="true">
+          <span className="rail-positive" style={{ width: `${owedToMePercent}%` }} />
+          <span className="rail-negative" style={{ width: `${owedByMePercent}%` }} />
+        </div>
+        <div>
+          <span>Debo</span>
+          <strong>{formatMoney(summary.owedByMe)}</strong>
+        </div>
       </section>
 
       <nav className="tabs" aria-label="Secciones">
