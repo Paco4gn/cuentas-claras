@@ -125,6 +125,28 @@ button svg,
   text-transform: uppercase;
 }
 
+.sync-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  margin: 8px 0 0;
+  padding: 6px 9px;
+}
+
+.sync-pill.cloud {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.sync-pill.local {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #3730a3;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

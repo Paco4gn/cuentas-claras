@@ -2,17 +2,40 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validPerson(userId) {
+      return request.resource.data.userId == userId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0;
+    }
+
+    function validRecord(userId) {
+      return request.resource.data.userId == userId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.currency == 'EUR'
+        && request.resource.data.kind in ['split', 'debt', 'payment']
+        && request.resource.data.status in ['por-pagar', 'parcial', 'pagado'];
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, delete: if isOwner(userId);
+      allow create, update: if isOwner(userId);
 
       match /persons/{personId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validPerson(userId);
       }
 
       match /records/{recordId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && validRecord(userId);
       }
     }
   }
 }
-

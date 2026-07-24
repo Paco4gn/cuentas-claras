@@ -19,6 +19,7 @@ import {
   setDoc,
   writeBatch,
 } from 'firebase/firestore'
+import { deleteObject, getDownloadURL, ref as storageRef, uploadString } from 'firebase/storage'
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -52,7 +53,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { firebaseAuth, firestore, googleProvider, isFirebaseConfigured } from './firebase'
+import { firebaseAuth, firebaseStorage, firestore, googleProvider, isFirebaseConfigured } from './firebase'
 
 type ActorId = 'me' | string
 type RecordKind = 'split' | 'debt' | 'payment'
@@ -109,6 +110,7 @@ interface Person {
   email: string
   notes: string
   avatar?: string
+  avatarStoragePath?: string
   createdAt: string
 }
 
@@ -686,23 +688,55 @@ function App() {
 
   async function persistPerson(person: Person) {
     if (syncMode === 'cloud' && firestore) {
+      setSyncMessage('Subiendo persona a Firebase...')
       await setDoc(doc(peopleCollection(person.userId), person.id), cleanForFirestore(person), { merge: true })
+      setSyncMessage('Sincronizado con Firebase')
     }
     await db.persons.put(person)
   }
 
   async function persistRecord(record: LedgerRecord) {
     if (syncMode === 'cloud' && firestore) {
+      setSyncMessage('Subiendo movimiento a Firebase...')
       await setDoc(doc(recordsCollection(record.userId), record.id), cleanForFirestore(record), { merge: true })
+      setSyncMessage('Sincronizado con Firebase')
     }
     await db.records.put(record)
   }
 
   async function removeRecord(record: LedgerRecord) {
     if (syncMode === 'cloud' && firestore) {
+      setSyncMessage('Borrando movimiento en Firebase...')
       await deleteDoc(doc(recordsCollection(record.userId), record.id))
+      setSyncMessage('Sincronizado con Firebase')
     }
     await db.records.delete(record.id)
+  }
+
+  async function personWithCloudAvatar(person: Person, previousPerson?: Person) {
+    if (syncMode !== 'cloud' || !firebaseStorage || !person.avatar?.startsWith('data:image/')) return person
+    const avatarPath = `avatars/${person.userId}/${person.id}.jpg`
+    try {
+      const imageRef = storageRef(firebaseStorage, avatarPath)
+      setSyncMessage('Subiendo foto a Firebase Storage...')
+      await uploadString(imageRef, person.avatar, 'data_url', { contentType: 'image/jpeg' })
+      const avatarUrl = await getDownloadURL(imageRef)
+      return { ...person, avatar: avatarUrl, avatarStoragePath: avatarPath }
+    } catch {
+      setNotice('Storage no esta activo todavia; guardo la foto comprimida con la persona.')
+      setSyncMessage('Firebase Storage pendiente')
+      return { ...person, avatarStoragePath: previousPerson?.avatarStoragePath }
+    }
+  }
+
+  async function removeOldCloudAvatarIfNeeded(previousPerson: Person | undefined, nextPerson: Person) {
+    if (syncMode !== 'cloud' || !firebaseStorage || !previousPerson?.avatarStoragePath) return
+    if (nextPerson.avatar || previousPerson.avatar === nextPerson.avatar) return
+    try {
+      await deleteObject(storageRef(firebaseStorage, previousPerson.avatarStoragePath))
+    } catch {
+      setSyncMessage('Foto anterior pendiente de limpiar')
+    }
   }
 
   function finishLogin(user: User) {
@@ -1048,6 +1082,7 @@ function App() {
   async function submitPerson(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!currentUser || !personForm.name.trim()) return
+    const previousPerson = people.find((person) => person.id === editingPersonId)
     const person: Person = {
       id: editingPersonId ?? uid(),
       userId: currentUser.id,
@@ -1056,13 +1091,16 @@ function App() {
       email: personForm.email.trim(),
       notes: personForm.notes.trim(),
       avatar: personForm.avatar,
-      createdAt: people.find((person) => person.id === editingPersonId)?.createdAt ?? new Date().toISOString(),
+      avatarStoragePath: previousPerson?.avatarStoragePath,
+      createdAt: previousPerson?.createdAt ?? new Date().toISOString(),
     }
-    await persistPerson(person)
+    const personToSave = await personWithCloudAvatar(person, previousPerson)
+    await removeOldCloudAvatarIfNeeded(previousPerson, personToSave)
+    await persistPerson(personToSave)
     setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
     setEditingPersonId(null)
-    setPersonId(person.id)
-    setParticipantIds((current) => [...new Set([...current, person.id])])
+    setPersonId(personToSave.id)
+    setParticipantIds((current) => [...new Set([...current, personToSave.id])])
     if (syncMode === 'local') await refreshData()
     setNotice(editingPersonId ? 'Persona actualizada.' : 'Persona anadida.')
   }
@@ -1377,6 +1415,19 @@ function App() {
     await db.persons.bulkPut(localPeople)
     await db.records.bulkPut(localRecords)
     setNotice('Datos locales subidos a Firebase.')
+  }
+
+  async function refreshInstalledApp() {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map((registration) => registration.update()))
+    }
+    if ('caches' in window) {
+      const cacheKeys = await caches.keys()
+      await Promise.all(cacheKeys.filter((key) => key.startsWith('cuentas-claras-')).map((key) => caches.delete(key)))
+    }
+    setNotice('App actualizada. Recargo la pagina...')
+    window.setTimeout(() => window.location.reload(), 500)
   }
 
   function signOut() {
@@ -1718,6 +1769,16 @@ function App() {
                   </button>
                 </form>
               )}
+              <div className="button-row">
+                <button className="secondary-button" type="button" onClick={exportData}>
+                  <Download aria-hidden="true" />
+                  Copia JSON
+                </button>
+                <button className="secondary-button" type="button" onClick={refreshInstalledApp}>
+                  <RotateCcw aria-hidden="true" />
+                  Actualizar app
+                </button>
+              </div>
               <form className="form-grid" onSubmit={saveRecoveryHint}>
                 <label>
                   Pista de recuperacion

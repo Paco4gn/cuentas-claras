@@ -9,7 +9,7 @@ PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pago
 - Cambio de contrasena y recuperacion mediante codigo local.
 - Inicio con Google mediante Firebase o Google Identity Services en modo local.
 - Sincronizacion cloud con Firestore y copia local en IndexedDB.
-- Personas con telefono, email y notas.
+- Personas con telefono, email, notas y foto. En modo Firebase las fotos intentan subirse a Cloud Storage.
 - Gastos divididos entre varias personas, con reparto igual o importes manuales.
 - Deudas directas: "me debe" y "le debo".
 - Pagos: "me ha pagado" y "le he pagado".
@@ -19,6 +19,8 @@ PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pago
 - Liquidacion rapida de saldos con registro de pago en historial.
 - Filtro por estado y exportacion CSV.
 - Resumen de actividad y etiquetas.
+- Boton para actualizar la PWA instalada y evitar caches antiguos en iPhone.
+- Tests end-to-end con Playwright para el flujo principal.
 - Instalable en iPhone desde Safari con "Anadir a pantalla de inicio".
 
 ## Privacidad
@@ -26,6 +28,8 @@ PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pago
 La app funciona con Firebase si las variables `VITE_FIREBASE_*` estan configuradas. En ese modo, personas y movimientos se guardan en Firestore por usuario y tambien se reflejan en IndexedDB como copia local.
 
 Si falta Firebase o decides usar el fallback, la app pasa a modo local-first: los datos se guardan en el navegador del dispositivo. Usa la opcion de exportar JSON para hacer copias de seguridad.
+
+Las fotos se comprimen antes de guardarlas. En modo cloud se suben a Cloud Storage cuando el bucket esta activo; si Storage aun no esta listo, la app conserva la foto comprimida en el documento para no bloquear el alta de la persona.
 
 La recuperacion de contrasena funciona con un codigo local. Guarda ese codigo en un sitio seguro: la app guarda solo su hash y no puede mostrarlo de nuevo si lo pierdes.
 
@@ -52,6 +56,7 @@ Archivos incluidos:
 
 - `src/firebase.ts`: inicializacion Firebase.
 - `firestore.rules`: cada usuario solo accede a `users/{uid}` y sus subcolecciones.
+- `storage.rules`: cada usuario solo puede leer y escribir sus fotos en `avatars/{uid}`.
 - `firebase.json` y `.firebaserc`: despliegue de reglas al proyecto correcto.
 
 Variables necesarias:
@@ -67,6 +72,12 @@ VITE_FIREBASE_APP_ID=...
 
 Firestore ya esta creado en `eur3` y las reglas se han desplegado. Para que Auth funcione hay que activar en Firebase Console los proveedores `Email/Password` y `Google` en Authentication > Sign-in method, y autorizar `paco4gn.github.io` como dominio.
 
+Para fotos cloud, activa Cloud Storage en Firebase Console y despliega:
+
+```bash
+npx firebase-tools deploy --only storage --project cuentas-claras-paco4gn
+```
+
 ## Desarrollo
 
 ```bash
@@ -78,4 +89,10 @@ npm run dev
 
 ```bash
 npm run build
+```
+
+## Tests
+
+```bash
+npm run test:e2e
 ```
