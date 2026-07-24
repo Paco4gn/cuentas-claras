@@ -350,6 +350,35 @@ button svg,
   color: #166534;
 }
 
+.due-badge {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+.due-badge.neutral {
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.due-badge.soon,
+.due-soon {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.due-badge.overdue,
+.due-overdue {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;
@@ -375,6 +404,10 @@ button svg,
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-row.four {
+  grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(120px, 0.75fr));
 }
 
 .form-row.two {
@@ -528,6 +561,7 @@ button:focus-visible {
   gap: 8px;
   justify-content: center;
   min-height: 42px;
+  text-decoration: none;
 }
 
 .primary-button {
@@ -558,6 +592,11 @@ button:focus-visible {
 .icon-button.danger {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .toolbar {
@@ -734,6 +773,7 @@ button:focus-visible {
   .dashboard-grid,
   .two-columns,
   .form-row,
+  .form-row.four,
   .form-row.two {
     grid-template-columns: 1fr;
   }

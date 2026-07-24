@@ -4,6 +4,8 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
+  BellRing,
+  CalendarClock,
   CheckCircle2,
   CircleDollarSign,
   Copy,
@@ -13,6 +15,7 @@ import {
   FileText,
   KeyRound,
   LogOut,
+  MessageCircle,
   Plus,
   ReceiptText,
   RotateCcw,
@@ -36,7 +39,7 @@ type RecordStatus = 'por-pagar' | 'parcial' | 'pagado'
 type DebtDirection = 'owes_me' | 'i_owe'
 type PaymentDirection = 'person_paid_me' | 'i_paid_person'
 type Tab = 'resumen' | 'nuevo' | 'personas' | 'historial'
-type StatusFilter = 'todos' | RecordStatus
+type StatusFilter = 'todos' | RecordStatus | 'vencidos'
 type AuthMode = 'login' | 'register' | 'recover'
 
 interface User {
@@ -97,6 +100,7 @@ interface LedgerRecord {
   direction?: DebtDirection | PaymentDirection
   tags: string[]
   status: RecordStatus
+  dueDate?: string
   note: string
   createdAt: string
 }
@@ -125,6 +129,7 @@ class CuentaDb extends Dexie {
 const db = new CuentaDb()
 const sessionKey = 'cuentas-claras-session'
 const today = new Date().toISOString().slice(0, 10)
+const dayMs = 86_400_000
 const me: ActorId = 'me'
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
@@ -188,6 +193,29 @@ function shouldCountInOpenBalance(record: LedgerRecord) {
   return record.kind === 'payment' || record.status !== 'pagado'
 }
 
+function daysUntil(date: string) {
+  const target = new Date(`${date}T00:00:00`).getTime()
+  const current = new Date(`${today}T00:00:00`).getTime()
+  return Math.round((target - current) / dayMs)
+}
+
+function dueLabel(record: LedgerRecord) {
+  if (!record.dueDate || record.status === 'pagado') return ''
+  const days = daysUntil(record.dueDate)
+  if (days < 0) return `Vencido hace ${Math.abs(days)} d`
+  if (days === 0) return 'Vence hoy'
+  if (days === 1) return 'Vence manana'
+  return `Vence en ${days} d`
+}
+
+function dueTone(record: LedgerRecord) {
+  if (!record.dueDate || record.status === 'pagado') return 'neutral'
+  const days = daysUntil(record.dueDate)
+  if (days < 0) return 'overdue'
+  if (days <= 3) return 'soon'
+  return 'neutral'
+}
+
 function computeSignedByPerson(record: LedgerRecord) {
   const signed = new Map<string, number>()
   const add = (personId: string, value: number) => {
@@ -248,6 +276,7 @@ function App() {
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(today)
+  const [dueDate, setDueDate] = useState('')
   const [paidBy, setPaidBy] = useState<ActorId>(me)
   const [participantIds, setParticipantIds] = useState<ActorId[]>([me])
   const [shares, setShares] = useState<Record<string, number>>({})
@@ -346,10 +375,31 @@ function App() {
     return { owedToMe, owedByMe, net: owedToMe - owedByMe, openCount, paidCount }
   }, [balances, records])
 
+  const dueRecords = useMemo(
+    () =>
+      records
+        .filter((record) => record.dueDate && record.status !== 'pagado')
+        .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+        .slice(0, 5),
+    [records],
+  )
+
+  const dueStats = useMemo(() => {
+    const openDue = records.filter((record) => record.dueDate && record.status !== 'pagado')
+    return {
+      overdue: openDue.filter((record) => daysUntil(record.dueDate ?? today) < 0).length,
+      soon: openDue.filter((record) => {
+        const days = daysUntil(record.dueDate ?? today)
+        return days >= 0 && days <= 3
+      }).length,
+    }
+  }, [records])
+
   const filteredRecords = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     return records.filter((record) => {
-      if (statusFilter !== 'todos' && record.status !== statusFilter) return false
+      if (statusFilter === 'vencidos' && (!record.dueDate || record.status === 'pagado' || daysUntil(record.dueDate) >= 0)) return false
+      if (statusFilter !== 'todos' && statusFilter !== 'vencidos' && record.status !== statusFilter) return false
       if (!normalized) return true
       const personNames = [...computeSignedByPerson(record).keys()]
         .map((id) => personName(id, people))
@@ -640,6 +690,7 @@ function App() {
     setTitle('')
     setAmount('')
     setDate(today)
+    setDueDate('')
     setPaidBy(me)
     setParticipantIds([me])
     setShares(emptyShares(people))
@@ -657,6 +708,7 @@ function App() {
     const numericAmount = Number(amount)
     if (!title.trim()) return 'Pon un concepto.'
     if (!numericAmount || numericAmount <= 0) return 'Pon un importe mayor que cero.'
+    if (dueDate && dueDate < date) return 'El vencimiento no puede ser anterior a la fecha del movimiento.'
     if (kind !== 'split' && !(personId || firstPersonId)) return 'Anade o elige una persona.'
     if (kind === 'split') {
       if (participantIds.length === 0) return 'Elige al menos un participante.'
@@ -687,6 +739,7 @@ function App() {
       date,
       tags: tagsFromText(tagText),
       status,
+      dueDate: dueDate || undefined,
       note: note.trim(),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     }
@@ -715,6 +768,7 @@ function App() {
     setTitle(record.title)
     setAmount(String(record.amount))
     setDate(record.date)
+    setDueDate(record.dueDate ?? '')
     setPaidBy(record.paidBy ?? me)
     setParticipantIds(record.participantIds ?? [me])
     setShares({ ...emptyShares(people), ...(record.shares ?? {}) })
@@ -765,6 +819,21 @@ function App() {
     setNotice(`Saldo de ${person.name} liquidado.`)
   }
 
+  function reminderHref(person: Person) {
+    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    if (balance === 0) return ''
+    const text =
+      balance > 0
+        ? `Hola ${person.name}, en Cuentas claras me sale pendiente ${formatMoney(balance)}. Cuando puedas lo cuadramos.`
+        : `Hola ${person.name}, en Cuentas claras me sale que te debo ${formatMoney(Math.abs(balance))}. Dime como prefieres que lo cuadre.`
+    const normalizedPhone = person.phone.replace(/[^\d+]/g, '')
+    const whatsappPhone =
+      normalizedPhone.startsWith('+') || normalizedPhone.length !== 9 ? normalizedPhone.replace(/^\+/, '') : `34${normalizedPhone}`
+    if (whatsappPhone) return `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(text)}`
+    if (person.email) return `mailto:${person.email}?subject=${encodeURIComponent('Cuentas claras')}&body=${encodeURIComponent(text)}`
+    return ''
+  }
+
   async function deletePerson(id: string) {
     const hasRecords = records.some(
       (record) => record.personId === id || record.paidBy === id || record.participantIds?.includes(id),
@@ -809,12 +878,13 @@ function App() {
   }
 
   function exportCsv() {
-    const header = ['fecha', 'tipo', 'concepto', 'persona', 'importe', 'impacto', 'estado', 'etiquetas', 'nota']
+    const header = ['fecha', 'vence', 'tipo', 'concepto', 'persona', 'importe', 'impacto', 'estado', 'etiquetas', 'nota']
     const rows = records.map((record) => {
       const signed = [...computeSignedByPerson(record).values()].reduce((sum, value) => sum + value, 0)
       const names = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(' | ')
       return [
         record.date,
+        record.dueDate ?? '',
         kindLabels[record.kind],
         record.title,
         names || 'Yo',
@@ -995,6 +1065,7 @@ function App() {
                   balance={balances.get(person.id) ?? 0}
                   key={person.id}
                   person={person}
+                  reminderHref={reminderHref(person)}
                   onEdit={() => startEditPerson(person)}
                   onSettle={() => settlePerson(person)}
                 />
@@ -1019,6 +1090,48 @@ function App() {
               <div className="stat-row">
                 <span>Personas</span>
                 <strong>{people.length}</strong>
+              </div>
+              <div className="stat-row">
+                <span>Vencidos</span>
+                <strong>{dueStats.overdue}</strong>
+              </div>
+              <div className="stat-row">
+                <span>Proximos 3 dias</span>
+                <strong>{dueStats.soon}</strong>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="section-heading compact">
+                <h2>Vencimientos</h2>
+                <BellRing aria-hidden="true" />
+              </div>
+              <div className="compact-records">
+                {dueRecords.length === 0 && <EmptyState text="No hay vencimientos pendientes." />}
+                {dueRecords.map((record) => (
+                  <button
+                    className={`compact-record due-${dueTone(record)}`}
+                    key={record.id}
+                    onClick={() => startEditRecord(record)}
+                    type="button"
+                  >
+                    <span>{record.title}</span>
+                    <strong>{dueLabel(record)}</strong>
+                  </button>
+                ))}
+                {dueStats.overdue > 0 && (
+                  <button
+                    className="secondary-button full-button"
+                    onClick={() => {
+                      setStatusFilter('vencidos')
+                      setTab('historial')
+                    }}
+                    type="button"
+                  >
+                    <CalendarClock aria-hidden="true" />
+                    Ver vencidos
+                  </button>
+                )}
               </div>
             </section>
 
@@ -1205,7 +1318,7 @@ function App() {
                 </button>
               ))}
             </div>
-            <div className="form-row">
+            <div className="form-row four">
               <label>
                 Concepto
                 <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Cena, alquiler, bizum..." />
@@ -1217,6 +1330,10 @@ function App() {
               <label>
                 Fecha
                 <input value={date} onChange={(event) => setDate(event.target.value)} type="date" />
+              </label>
+              <label>
+                Vence
+                <input value={dueDate} onChange={(event) => setDueDate(event.target.value)} type="date" />
               </label>
             </div>
 
@@ -1343,6 +1460,7 @@ function App() {
               Estado
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
                 <option value="todos">Todos</option>
+                <option value="vencidos">Vencidos</option>
                 <option value="por-pagar">Por pagar</option>
                 <option value="parcial">Parcial</option>
                 <option value="pagado">Pagado</option>
@@ -1418,11 +1536,13 @@ function PersonBalanceCard({
   onEdit,
   onSettle,
   person,
+  reminderHref,
 }: {
   balance: number
   onEdit: () => void
   onSettle: () => void
   person: Person
+  reminderHref: string
 }) {
   return (
     <article className="person-card balance-card">
@@ -1436,6 +1556,15 @@ function PersonBalanceCard({
         <button aria-label="Editar persona" className="icon-button" type="button" title="Editar persona" onClick={onEdit}>
           <Edit3 aria-hidden="true" />
         </button>
+        {reminderHref ? (
+          <a aria-label="Recordar pago" className="icon-button" href={reminderHref} rel="noreferrer" target="_blank" title="Recordar pago">
+            <MessageCircle aria-hidden="true" />
+          </a>
+        ) : (
+          <button aria-label="Recordar pago" className="icon-button" disabled type="button" title="Anade telefono o email">
+            <MessageCircle aria-hidden="true" />
+          </button>
+        )}
         <button className="secondary-button settle-button" disabled={balance === 0} type="button" onClick={onSettle}>
           <CheckCircle2 aria-hidden="true" />
           Liquidar
@@ -1472,6 +1601,7 @@ function RecordRow({
         <div className="record-title">
           <h3>{record.title}</h3>
           <span className={`status ${record.status}`}>{statusLabels[record.status]}</span>
+          {dueLabel(record) && <span className={`due-badge ${dueTone(record)}`}>{dueLabel(record)}</span>}
         </div>
         <p>{[record.date, personNames || 'Yo', kindLabels[record.kind]].join(' / ')}</p>
         {record.note && (
