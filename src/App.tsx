@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   BarChart3,
   BellRing,
+  Camera,
   CalendarClock,
   CheckCircle2,
   CircleDollarSign,
@@ -53,6 +54,8 @@ interface User {
   googleSub?: string
   recoveryHash?: string
   recoverySalt?: string
+  recoveryHint?: string
+  recoveryUpdatedAt?: string
 }
 
 interface GoogleCredentialResponse {
@@ -82,6 +85,7 @@ interface Person {
   phone: string
   email: string
   notes: string
+  avatar?: string
   createdAt: string
 }
 
@@ -109,6 +113,16 @@ interface ImportPayload {
   people?: Person[]
   persons?: Person[]
   records?: LedgerRecord[]
+}
+
+interface RecoveryKitPayload {
+  app?: string
+  type?: string
+  version?: number
+  email?: string
+  name?: string
+  recoveryCode?: string
+  createdAt?: string
 }
 
 class CuentaDb extends Dexie {
@@ -160,8 +174,27 @@ function makeRecoveryCode() {
   return `CC-${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
 }
 
+function recoveryKitContent(user: User, recoveryCode: string) {
+  const payload: RecoveryKitPayload = {
+    app: 'cuentas-claras',
+    type: 'recovery-kit',
+    version: 1,
+    email: user.email,
+    name: user.name,
+    recoveryCode,
+    createdAt: new Date().toISOString(),
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
 function normalizeRecoveryCode(value: string) {
   return value.replace(/[^a-z0-9]/gi, '').toUpperCase()
+}
+
+function passwordProblem(password: string) {
+  if (password.length < 6) return 'Usa una contrasena de al menos 6 caracteres.'
+  if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) return 'Mejor mezcla letras y numeros en la contrasena.'
+  return ''
 }
 
 function decodeJwtPayload(token: string) {
@@ -252,25 +285,59 @@ function csvEscape(value: string | number) {
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
 }
 
+function imageFileToAvatar(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('not-image'))
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('read-error'))
+    reader.onload = () => {
+      const image = new Image()
+      image.onerror = () => reject(new Error('image-error'))
+      image.onload = () => {
+        const maxSize = 420
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(image.width * scale))
+        canvas.height = Math.max(1, Math.round(image.height * scale))
+        const context = canvas.getContext('2d')
+        if (!context) {
+          reject(new Error('canvas-error'))
+          return
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      image.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState('')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [authHint, setAuthHint] = useState('')
   const [recoveryCode, setRecoveryCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [authInfo, setAuthInfo] = useState('')
   const [recoveryCodeToShow, setRecoveryCodeToShow] = useState('')
   const [changePasswordForm, setChangePasswordForm] = useState({ current: '', next: '', recovery: '' })
+  const [accountHint, setAccountHint] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
   const [people, setPeople] = useState<Person[]>([])
   const [records, setRecords] = useState<LedgerRecord[]>([])
   const [tab, setTab] = useState<Tab>('resumen')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
-  const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '' })
+  const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '', avatar: '' })
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [kind, setKind] = useState<RecordKind>('split')
   const [title, setTitle] = useState('')
@@ -300,6 +367,7 @@ function App() {
 
   useEffect(() => {
     if (!currentUser) return
+    setAccountHint(currentUser.recoveryHint ?? '')
     Promise.all([
       db.persons.where('userId').equals(currentUser.id).sortBy('name'),
       db.records.where('userId').equals(currentUser.id).toArray(),
@@ -448,10 +516,23 @@ function App() {
     localStorage.setItem(sessionKey, user.id)
     setCurrentUser(user)
     setAuthPassword('')
+    setAuthHint('')
     setNewPassword('')
     setRecoveryCode('')
     setAuthError('')
     setAuthInfo('')
+  }
+
+  async function userWithNewRecovery(user: User) {
+    const nextRecoveryCode = makeRecoveryCode()
+    const recoverySalt = uid()
+    const updatedUser: User = {
+      ...user,
+      recoveryHash: await hashPassword(normalizeRecoveryCode(nextRecoveryCode), recoverySalt),
+      recoverySalt,
+      recoveryUpdatedAt: new Date().toISOString(),
+    }
+    return { nextRecoveryCode, updatedUser }
   }
 
   async function handleGoogleLogin(response: GoogleCredentialResponse) {
@@ -510,25 +591,28 @@ function App() {
     }
 
     if (authMode === 'register') {
+      const problem = passwordProblem(password)
+      if (problem) {
+        setAuthError(problem)
+        return
+      }
       const exists = await db.users.where('email').equals(email).first()
       if (exists) {
         setAuthError('Ya existe una cuenta con ese email.')
         return
       }
       const salt = uid()
-      const nextRecoveryCode = makeRecoveryCode()
-      const recoverySalt = uid()
-      const user: User = {
+      const baseUser: User = {
         id: uid(),
         name: authName.trim(),
         email,
         passwordHash: await hashPassword(password, salt),
         salt,
         authProvider: 'password',
-        recoveryHash: await hashPassword(normalizeRecoveryCode(nextRecoveryCode), recoverySalt),
-        recoverySalt,
+        recoveryHint: authHint.trim(),
         createdAt: new Date().toISOString(),
       }
+      const { nextRecoveryCode, updatedUser: user } = await userWithNewRecovery(baseUser)
       await db.users.add(user)
       setRecoveryCodeToShow(nextRecoveryCode)
       finishLogin(user)
@@ -558,6 +642,11 @@ function App() {
       setAuthError('Pon email, codigo de recuperacion y nueva contrasena.')
       return
     }
+    const problem = passwordProblem(password)
+    if (problem) {
+      setAuthError(problem)
+      return
+    }
     const user = await db.users.where('email').equals(email).first()
     if (!user?.recoveryHash || !user.recoverySalt) {
       setAuthError('Esa cuenta no tiene codigo de recuperacion creado en esta pagina.')
@@ -581,17 +670,63 @@ function App() {
 
   async function generateRecoveryForCurrentUser() {
     if (!currentUser) return
-    const nextRecoveryCode = makeRecoveryCode()
-    const recoverySalt = uid()
-    const updatedUser: User = {
-      ...currentUser,
-      recoveryHash: await hashPassword(normalizeRecoveryCode(nextRecoveryCode), recoverySalt),
-      recoverySalt,
-    }
+    const { nextRecoveryCode, updatedUser } = await userWithNewRecovery(currentUser)
     await db.users.put(updatedUser)
     setCurrentUser(updatedUser)
     setRecoveryCodeToShow(nextRecoveryCode)
     setNotice('Codigo de recuperacion creado.')
+  }
+
+  function downloadRecoveryKit() {
+    if (!currentUser || !recoveryCodeToShow) return
+    downloadFile(`cuentas-claras-recuperacion-${currentUser.email}.json`, recoveryKitContent(currentUser, recoveryCodeToShow), 'application/json')
+    setNotice('Kit de recuperacion descargado.')
+  }
+
+  async function saveRecoveryHint(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!currentUser) return
+    const updatedUser = { ...currentUser, recoveryHint: accountHint.trim() }
+    await db.users.put(updatedUser)
+    setCurrentUser(updatedUser)
+    setNotice(accountHint.trim() ? 'Pista de recuperacion guardada.' : 'Pista eliminada.')
+  }
+
+  async function showRecoveryHint() {
+    const email = authEmail.trim().toLowerCase()
+    if (!email) {
+      setAuthError('Pon tu email para buscar la pista.')
+      return
+    }
+    const user = await db.users.where('email').equals(email).first()
+    setAuthError('')
+    if (!user) {
+      setAuthInfo('No hay una cuenta local con ese email en este dispositivo.')
+      return
+    }
+    setAuthInfo(user.recoveryHint ? `Pista: ${user.recoveryHint}` : 'Esta cuenta no tiene pista guardada.')
+  }
+
+  async function importRecoveryKit(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const payload = JSON.parse(await file.text()) as RecoveryKitPayload
+      const code = payload.recoveryCode?.trim()
+      const email = payload.email?.trim().toLowerCase()
+      if (payload.app !== 'cuentas-claras' || payload.type !== 'recovery-kit' || !email || !code) {
+        setAuthError('Ese archivo no parece un kit valido de Cuentas claras.')
+        return
+      }
+      setAuthEmail(email)
+      setRecoveryCode(code)
+      setAuthError('')
+      setAuthInfo('Kit cargado. Pon una contrasena nueva y pulsa Cambiar y entrar.')
+    } catch {
+      setAuthError('No se pudo leer el kit de recuperacion.')
+    } finally {
+      event.target.value = ''
+    }
   }
 
   async function copyRecoveryCode() {
@@ -606,6 +741,11 @@ function App() {
     const next = changePasswordForm.next.trim()
     if (!next) {
       setNotice('Pon una contrasena nueva.')
+      return
+    }
+    const problem = passwordProblem(next)
+    if (problem) {
+      setNotice(problem)
       return
     }
 
@@ -645,10 +785,11 @@ function App() {
       phone: personForm.phone.trim(),
       email: personForm.email.trim(),
       notes: personForm.notes.trim(),
+      avatar: personForm.avatar,
       createdAt: people.find((person) => person.id === editingPersonId)?.createdAt ?? new Date().toISOString(),
     }
     await db.persons.put(person)
-    setPersonForm({ name: '', phone: '', email: '', notes: '' })
+    setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
     setEditingPersonId(null)
     setPersonId(person.id)
     setParticipantIds((current) => [...new Set([...current, person.id])])
@@ -657,14 +798,28 @@ function App() {
   }
 
   function startEditPerson(person: Person) {
-    setPersonForm({ name: person.name, phone: person.phone, email: person.email, notes: person.notes })
+    setPersonForm({ name: person.name, phone: person.phone, email: person.email, notes: person.notes, avatar: person.avatar ?? '' })
     setEditingPersonId(person.id)
     setTab('personas')
   }
 
   function resetPersonForm() {
-    setPersonForm({ name: '', phone: '', email: '', notes: '' })
+    setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
     setEditingPersonId(null)
+  }
+
+  async function handlePersonAvatar(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const avatar = await imageFileToAvatar(file)
+      setPersonForm((current) => ({ ...current, avatar }))
+      setNotice('Foto preparada.')
+    } catch {
+      setNotice('No se pudo cargar esa foto.')
+    } finally {
+      event.target.value = ''
+    }
   }
 
   function splitEqually() {
@@ -959,10 +1114,20 @@ function App() {
           </div>
           <form onSubmit={submitAuth} className="form-grid">
             {authMode === 'register' && (
-              <label>
-                Nombre
-                <input value={authName} onChange={(event) => setAuthName(event.target.value)} autoComplete="name" />
-              </label>
+              <>
+                <label>
+                  Nombre
+                  <input value={authName} onChange={(event) => setAuthName(event.target.value)} autoComplete="name" />
+                </label>
+                <label>
+                  Pista de recuperacion
+                  <input
+                    value={authHint}
+                    onChange={(event) => setAuthHint(event.target.value)}
+                    placeholder="Algo que te recuerde la contrasena"
+                  />
+                </label>
+              </>
             )}
             <label>
               Email
@@ -980,6 +1145,17 @@ function App() {
               </label>
             ) : (
               <>
+                <div className="recovery-actions">
+                  <button className="secondary-button" onClick={showRecoveryHint} type="button">
+                    <KeyRound aria-hidden="true" />
+                    Ver pista
+                  </button>
+                  <label className="secondary-button file-button">
+                    <Upload aria-hidden="true" />
+                    Cargar kit
+                    <input accept="application/json" onChange={importRecoveryKit} type="file" />
+                  </label>
+                </div>
                 <label>
                   Codigo de recuperacion
                   <input value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} placeholder="CC-XXXX-XXXX-XXXX" />
@@ -1141,8 +1317,18 @@ function App() {
                 <KeyRound aria-hidden="true" />
               </div>
               <p className="panel-copy">
-                Cambia tu contrasena o crea un codigo para recuperarla si la olvidas.
+                Cambia tu contrasena, guarda una pista y crea un kit para recuperarla si la olvidas.
               </p>
+              <div className="recovery-status-grid">
+                <div className={currentUser.recoveryHash ? 'recovery-status ready' : 'recovery-status warn'}>
+                  <span>Codigo</span>
+                  <strong>{currentUser.recoveryHash ? 'Activo' : 'Pendiente'}</strong>
+                </div>
+                <div className={currentUser.recoveryHint ? 'recovery-status ready' : 'recovery-status warn'}>
+                  <span>Pista</span>
+                  <strong>{currentUser.recoveryHint ? 'Guardada' : 'Sin pista'}</strong>
+                </div>
+              </div>
               <form className="form-grid" onSubmit={changePassword}>
                 <label>
                   Contrasena actual
@@ -1175,6 +1361,20 @@ function App() {
                   Cambiar contrasena
                 </button>
               </form>
+              <form className="form-grid" onSubmit={saveRecoveryHint}>
+                <label>
+                  Pista de recuperacion
+                  <input
+                    value={accountHint}
+                    onChange={(event) => setAccountHint(event.target.value)}
+                    placeholder="No pongas la contrasena literal"
+                  />
+                </label>
+                <button className="secondary-button" type="submit">
+                  <Save aria-hidden="true" />
+                  Guardar pista
+                </button>
+              </form>
               <button className="secondary-button full-button" type="button" onClick={generateRecoveryForCurrentUser}>
                 <KeyRound aria-hidden="true" />
                 {currentUser.recoveryHash ? 'Crear codigo nuevo' : 'Crear codigo de recuperacion'}
@@ -1186,6 +1386,10 @@ function App() {
                   <button className="secondary-button" type="button" onClick={copyRecoveryCode}>
                     <Copy aria-hidden="true" />
                     Copiar
+                  </button>
+                  <button className="secondary-button" type="button" onClick={downloadRecoveryKit}>
+                    <Download aria-hidden="true" />
+                    Descargar kit
                   </button>
                 </div>
               )}
@@ -1241,6 +1445,22 @@ function App() {
               <h2>{editingPersonId ? 'Editar persona' : 'Persona'}</h2>
               <UserPlus aria-hidden="true" />
             </div>
+            <div className="avatar-editor">
+              <Avatar name={personForm.name || 'Persona'} src={personForm.avatar} />
+              <div className="avatar-actions">
+                <label className="secondary-button file-button">
+                  <Camera aria-hidden="true" />
+                  Foto
+                  <input accept="image/*" onChange={handlePersonAvatar} type="file" />
+                </label>
+                {personForm.avatar && (
+                  <button className="secondary-button" onClick={() => setPersonForm({ ...personForm, avatar: '' })} type="button">
+                    <X aria-hidden="true" />
+                    Quitar
+                  </button>
+                )}
+              </div>
+            </div>
             <label>
               Nombre
               <input value={personForm.name} onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })} />
@@ -1274,6 +1494,7 @@ function App() {
             {people.length === 0 && <EmptyState text="No hay personas guardadas." />}
             {people.map((person) => (
               <article className="person-card" key={person.id}>
+                <Avatar name={person.name} src={person.avatar} />
                 <div>
                   <h3>{person.name}</h3>
                   <p>{[person.phone, person.email].filter(Boolean).join(' / ') || person.notes || 'Sin datos extra'}</p>
@@ -1546,12 +1767,13 @@ function PersonBalanceCard({
 }) {
   return (
     <article className="person-card balance-card">
+      <Avatar name={person.name} src={person.avatar} />
       <div>
         <h3>{person.name}</h3>
         <p>{person.phone || person.email || person.notes || 'Sin contacto'}</p>
       </div>
       <strong className={balance >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(balance)}</strong>
-      <span>{balance > 0 ? 'me debe' : balance < 0 ? 'le debo' : 'a cero'}</span>
+      <span className="balance-label">{balance > 0 ? 'me debe' : balance < 0 ? 'le debo' : 'a cero'}</span>
       <div className="row-actions">
         <button aria-label="Editar persona" className="icon-button" type="button" title="Editar persona" onClick={onEdit}>
           <Edit3 aria-hidden="true" />
@@ -1576,6 +1798,20 @@ function PersonBalanceCard({
 
 function EmptyState({ text }: { text: string }) {
   return <p className="empty-state">{text}</p>
+}
+
+function Avatar({ name, src }: { name: string; src?: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+  return (
+    <span className="avatar" aria-hidden="true">
+      {src ? <img alt="" src={src} /> : initials || 'P'}
+    </span>
+  )
 }
 
 function RecordRow({

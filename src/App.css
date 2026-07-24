@@ -260,7 +260,9 @@ button svg,
 }
 
 .balance-card {
-  grid-template-columns: minmax(160px, 1fr) auto 72px auto;
+  display: grid;
+  grid-template-columns: 52px minmax(160px, 1fr) auto 72px auto;
+  align-items: center;
 }
 
 .person-card h3,
@@ -276,10 +278,47 @@ button svg,
   white-space: nowrap;
 }
 
-.person-card > span {
+.balance-label {
   color: var(--text-soft);
   min-width: 68px;
   text-align: right;
+}
+
+.avatar {
+  align-items: center;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  border-radius: 50%;
+  color: #075985;
+  display: inline-flex;
+  flex: 0 0 52px;
+  font-weight: 900;
+  height: 52px;
+  justify-content: center;
+  overflow: hidden;
+  width: 52px;
+}
+
+.avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.avatar-editor {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .row-actions,
@@ -490,6 +529,12 @@ button:focus-visible {
   justify-items: center;
 }
 
+.recovery-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .split-box {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -684,6 +729,41 @@ button:focus-visible {
   width: 100%;
 }
 
+.recovery-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recovery-status {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+}
+
+.recovery-status span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.recovery-status strong {
+  color: var(--text-strong);
+}
+
+.recovery-status.ready {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.recovery-status.warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
 .recovery-card {
   background: #f8fafc;
   border: 1px solid var(--border);
@@ -816,6 +896,17 @@ button:focus-visible {
 
   .balance-card {
     grid-template-columns: 1fr;
+  }
+
+  .avatar-editor,
+  .recovery-actions,
+  .recovery-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .avatar-editor {
+    align-items: start;
+    flex-direction: column;
   }
 
   .person-card strong,
