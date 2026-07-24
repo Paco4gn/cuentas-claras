@@ -53,7 +53,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { firebaseAuth, firebaseStorage, firestore, googleProvider, isFirebaseConfigured } from './firebase'
+import { firebaseAuth, firebaseStorage, firestore, googleProvider, isFirebaseConfigured, useFirebaseStorage } from './firebase'
 
 type ActorId = 'me' | string
 type RecordKind = 'split' | 'debt' | 'payment'
@@ -713,8 +713,11 @@ function App() {
     await db.records.delete(record.id)
   }
 
-  async function personWithCloudAvatar(person: Person, previousPerson?: Person) {
-    if (syncMode !== 'cloud' || !firebaseStorage || !person.avatar?.startsWith('data:image/')) return person
+  async function personWithCloudAvatar(person: Person) {
+    if (!person.avatar?.startsWith('data:image/')) return person
+    if (syncMode !== 'cloud' || !useFirebaseStorage || !firebaseStorage) {
+      return { ...person, avatarStoragePath: undefined }
+    }
     const avatarPath = `avatars/${person.userId}/${person.id}.jpg`
     try {
       const imageRef = storageRef(firebaseStorage, avatarPath)
@@ -723,9 +726,9 @@ function App() {
       const avatarUrl = await getDownloadURL(imageRef)
       return { ...person, avatar: avatarUrl, avatarStoragePath: avatarPath }
     } catch {
-      setNotice('Storage no esta activo todavia; guardo la foto comprimida con la persona.')
-      setSyncMessage('Firebase Storage pendiente')
-      return { ...person, avatarStoragePath: previousPerson?.avatarStoragePath }
+      setNotice('Storage no esta activo; guardo la foto comprimida sin coste.')
+      setSyncMessage('Foto guardada sin Storage')
+      return { ...person, avatarStoragePath: undefined }
     }
   }
 
@@ -1094,7 +1097,7 @@ function App() {
       avatarStoragePath: previousPerson?.avatarStoragePath,
       createdAt: previousPerson?.createdAt ?? new Date().toISOString(),
     }
-    const personToSave = await personWithCloudAvatar(person, previousPerson)
+    const personToSave = await personWithCloudAvatar(person)
     await removeOldCloudAvatarIfNeeded(previousPerson, personToSave)
     await persistPerson(personToSave)
     setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })

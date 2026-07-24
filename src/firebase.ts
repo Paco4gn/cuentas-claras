@@ -19,5 +19,6 @@ export const isFirebaseConfigured = Boolean(
 export const firebaseApp: FirebaseApp | null = isFirebaseConfigured ? initializeApp(firebaseConfig) : null
 export const firebaseAuth: Auth | null = firebaseApp ? getAuth(firebaseApp) : null
 export const firestore: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null
-export const firebaseStorage: FirebaseStorage | null = firebaseApp ? getStorage(firebaseApp) : null
+export const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
+export const firebaseStorage: FirebaseStorage | null = firebaseApp && useFirebaseStorage ? getStorage(firebaseApp) : null
 export const googleProvider = new GoogleAuthProvider()

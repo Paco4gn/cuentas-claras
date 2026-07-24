@@ -9,7 +9,7 @@ PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pago
 - Cambio de contrasena y recuperacion mediante codigo local.
 - Inicio con Google mediante Firebase o Google Identity Services en modo local.
 - Sincronizacion cloud con Firestore y copia local en IndexedDB.
-- Personas con telefono, email, notas y foto. En modo Firebase las fotos intentan subirse a Cloud Storage.
+- Personas con telefono, email, notas y foto. Las fotos se comprimen para no depender de un plan de pago.
 - Gastos divididos entre varias personas, con reparto igual o importes manuales.
 - Deudas directas: "me debe" y "le debo".
 - Pagos: "me ha pagado" y "le he pagado".
@@ -29,7 +29,7 @@ La app funciona con Firebase si las variables `VITE_FIREBASE_*` estan configurad
 
 Si falta Firebase o decides usar el fallback, la app pasa a modo local-first: los datos se guardan en el navegador del dispositivo. Usa la opcion de exportar JSON para hacer copias de seguridad.
 
-Las fotos se comprimen antes de guardarlas. En modo cloud se suben a Cloud Storage cuando el bucket esta activo; si Storage aun no esta listo, la app conserva la foto comprimida en el documento para no bloquear el alta de la persona.
+Las fotos se comprimen antes de guardarlas. Por defecto se guardan con la persona en Firestore/IndexedDB para evitar activar el plan de pago de Firebase Storage.
 
 La recuperacion de contrasena funciona con un codigo local. Guarda ese codigo en un sitio seguro: la app guarda solo su hash y no puede mostrarlo de nuevo si lo pierdes.
 
@@ -68,11 +68,12 @@ VITE_FIREBASE_PROJECT_ID=...
 VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
+VITE_USE_FIREBASE_STORAGE=false
 ```
 
 Firestore ya esta creado en `eur3` y las reglas se han desplegado. Para que Auth funcione hay que activar en Firebase Console los proveedores `Email/Password` y `Google` en Authentication > Sign-in method, y autorizar `paco4gn.github.io` como dominio.
 
-Para fotos cloud, activa Cloud Storage en Firebase Console y despliega:
+Firebase Storage es opcional y no hace falta para esta app. Si algun dia quieres guardar fotos en Storage, Firebase exige actualizar el proyecto a plan de pago; entonces pon `VITE_USE_FIREBASE_STORAGE=true`, activa Cloud Storage en Firebase Console y despliega:
 
 ```bash
 npx firebase-tools deploy --only storage --project cuentas-claras-paco4gn
