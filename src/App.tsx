@@ -1,6 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import Dexie, { type Table } from 'dexie'
 import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  updateProfile,
+} from 'firebase/auth'
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  query as firestoreQuery,
+  setDoc,
+  writeBatch,
+} from 'firebase/firestore'
+import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
@@ -33,6 +52,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
+import { firebaseAuth, firestore, googleProvider, isFirebaseConfigured } from './firebase'
 
 type ActorId = 'me' | string
 type RecordKind = 'split' | 'debt' | 'payment'
@@ -42,6 +62,7 @@ type PaymentDirection = 'person_paid_me' | 'i_paid_person'
 type Tab = 'resumen' | 'nuevo' | 'personas' | 'historial'
 type StatusFilter = 'todos' | RecordStatus | 'vencidos'
 type AuthMode = 'login' | 'register' | 'recover'
+type SyncMode = 'cloud' | 'local'
 
 interface User {
   id: string
@@ -50,10 +71,12 @@ interface User {
   passwordHash: string
   salt: string
   createdAt: string
+  passwordAlgo?: 'sha256' | 'pbkdf2'
   authProvider?: 'password' | 'google'
   googleSub?: string
   recoveryHash?: string
   recoverySalt?: string
+  recoveryAlgo?: 'sha256' | 'pbkdf2'
   recoveryHint?: string
   recoveryUpdatedAt?: string
 }
@@ -147,6 +170,11 @@ const dayMs = 86_400_000
 const me: ActorId = 'me'
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 
+const cleanForFirestore = <T,>(value: T) => JSON.parse(JSON.stringify(value)) as T
+const userDoc = (userId: string) => doc(firestore!, 'users', userId)
+const peopleCollection = (userId: string) => collection(firestore!, 'users', userId, 'persons')
+const recordsCollection = (userId: string) => collection(firestore!, 'users', userId, 'records')
+
 const statusLabels: Record<RecordStatus, string> = {
   'por-pagar': 'Por pagar',
   parcial: 'Parcial',
@@ -203,12 +231,38 @@ function decodeJwtPayload(token: string) {
   return JSON.parse(atob(normalized)) as { email?: string; name?: string; sub?: string }
 }
 
-async function hashPassword(password: string, salt: string) {
-  const payload = new TextEncoder().encode(`${salt}:${password}`)
-  const digest = await crypto.subtle.digest('SHA-256', payload)
-  return Array.from(new Uint8Array(digest))
+function bytesToHex(bytes: Uint8Array) {
+  return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('')
+}
+
+async function hashSha256(password: string, salt: string) {
+  const payload = new TextEncoder().encode(`${salt}:${password}`)
+  const digest = await crypto.subtle.digest('SHA-256', payload)
+  return bytesToHex(new Uint8Array(digest))
+}
+
+async function hashPassword(password: string, salt: string) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
+  const derived = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      hash: 'SHA-256',
+      salt: new TextEncoder().encode(salt),
+      iterations: 210_000,
+    },
+    key,
+    256,
+  )
+  return bytesToHex(new Uint8Array(derived))
+}
+
+async function verifySecret(secret: string, salt: string, expectedHash: string, algo?: 'sha256' | 'pbkdf2') {
+  const primaryHash = algo === 'sha256' ? await hashSha256(secret, salt) : await hashPassword(secret, salt)
+  if (primaryHash === expectedHash) return true
+  if (!algo && (await hashSha256(secret, salt)) === expectedHash) return true
+  return false
 }
 
 function tagsFromText(value: string) {
@@ -356,8 +410,42 @@ function App() {
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null)
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
+  const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
+  const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
 
   useEffect(() => {
+    if (isFirebaseConfigured && firebaseAuth && firestore) {
+      setSyncMode('cloud')
+      setSyncMessage('Conectando con Firebase...')
+      return onAuthStateChanged(firebaseAuth, async (authUser) => {
+        if (!authUser) {
+          setCurrentUser(null)
+          setPeople([])
+          setRecords([])
+          setSyncMessage('Firebase listo')
+          return
+        }
+
+        const providerId = authUser.providerData[0]?.providerId
+        const fallbackUser: User = {
+          id: authUser.uid,
+          name: authUser.displayName || authUser.email?.split('@')[0] || 'Usuario',
+          email: authUser.email || '',
+          passwordHash: '',
+          salt: '',
+          authProvider: providerId === 'google.com' ? 'google' : 'password',
+          googleSub: providerId === 'google.com' ? authUser.uid : undefined,
+          createdAt: new Date().toISOString(),
+        }
+        const snapshot = await getDoc(userDoc(authUser.uid))
+        const storedProfile = snapshot.exists() ? (snapshot.data() as Partial<User>) : {}
+        const profile = { ...fallbackUser, ...storedProfile, id: authUser.uid, email: authUser.email || storedProfile.email || '' }
+        await setDoc(userDoc(authUser.uid), cleanForFirestore(profile), { merge: true })
+        setCurrentUser(profile)
+        setSyncMessage('Sincronizado con Firebase')
+      })
+    }
+
     const sessionId = localStorage.getItem(sessionKey)
     if (!sessionId) return
     db.users.get(sessionId).then((storedUser) => {
@@ -368,6 +456,33 @@ function App() {
   useEffect(() => {
     if (!currentUser) return
     setAccountHint(currentUser.recoveryHint ?? '')
+    if (syncMode === 'cloud' && firestore) {
+      const unsubscribePeople = onSnapshot(
+        firestoreQuery(peopleCollection(currentUser.id)),
+        (snapshot) => {
+          const nextPeople = snapshot.docs.map((personDoc) => personDoc.data() as Person).sort((a, b) => a.name.localeCompare(b.name))
+          setPeople(nextPeople)
+          setShares((current) => ({ ...emptyShares(nextPeople), ...current }))
+          if (!personId && nextPeople[0]) setPersonId(nextPeople[0].id)
+          db.persons.bulkPut(nextPeople).catch(() => undefined)
+        },
+        () => setSyncMessage('Firebase: error leyendo personas'),
+      )
+      const unsubscribeRecords = onSnapshot(
+        firestoreQuery(recordsCollection(currentUser.id)),
+        (snapshot) => {
+          const nextRecords = sortRecords(snapshot.docs.map((recordDoc) => recordDoc.data() as LedgerRecord))
+          setRecords(nextRecords)
+          db.records.bulkPut(nextRecords).catch(() => undefined)
+        },
+        () => setSyncMessage('Firebase: error leyendo movimientos'),
+      )
+      return () => {
+        unsubscribePeople()
+        unsubscribeRecords()
+      }
+    }
+
     Promise.all([
       db.persons.where('userId').equals(currentUser.id).sortBy('name'),
       db.records.where('userId').equals(currentUser.id).toArray(),
@@ -377,7 +492,7 @@ function App() {
       setShares(emptyShares(storedPeople))
       if (storedPeople[0]) setPersonId(storedPeople[0].id)
     })
-  }, [currentUser])
+  }, [currentUser, personId, syncMode])
 
   useEffect(() => {
     if (!notice) return
@@ -386,7 +501,7 @@ function App() {
   }, [notice])
 
   useEffect(() => {
-    if (currentUser || !googleClientId) return
+    if (currentUser || isFirebaseConfigured || !googleClientId) return
     const element = document.getElementById('google-signin')
     if (!element) return
 
@@ -421,6 +536,8 @@ function App() {
     script.defer = true
     script.onload = renderButton
     if (!existingScript) document.head.appendChild(script)
+  // Google Identity Services keeps the callback reference internally; rerendering the script on every state change is noisy.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, authMode])
 
   const balances = useMemo(() => {
@@ -512,8 +629,29 @@ function App() {
     if (!personId && storedPeople[0]) setPersonId(storedPeople[0].id)
   }
 
+  async function persistPerson(person: Person) {
+    if (syncMode === 'cloud' && firestore) {
+      await setDoc(doc(peopleCollection(person.userId), person.id), cleanForFirestore(person), { merge: true })
+    }
+    await db.persons.put(person)
+  }
+
+  async function persistRecord(record: LedgerRecord) {
+    if (syncMode === 'cloud' && firestore) {
+      await setDoc(doc(recordsCollection(record.userId), record.id), cleanForFirestore(record), { merge: true })
+    }
+    await db.records.put(record)
+  }
+
+  async function removeRecord(record: LedgerRecord) {
+    if (syncMode === 'cloud' && firestore) {
+      await deleteDoc(doc(recordsCollection(record.userId), record.id))
+    }
+    await db.records.delete(record.id)
+  }
+
   function finishLogin(user: User) {
-    localStorage.setItem(sessionKey, user.id)
+    if (syncMode === 'local') localStorage.setItem(sessionKey, user.id)
     setCurrentUser(user)
     setAuthPassword('')
     setAuthHint('')
@@ -530,6 +668,7 @@ function App() {
       ...user,
       recoveryHash: await hashPassword(normalizeRecoveryCode(nextRecoveryCode), recoverySalt),
       recoverySalt,
+      recoveryAlgo: 'pbkdf2',
       recoveryUpdatedAt: new Date().toISOString(),
     }
     return { nextRecoveryCode, updatedUser }
@@ -574,12 +713,68 @@ function App() {
     }
   }
 
+  async function signInWithFirebaseGoogle() {
+    if (!firebaseAuth) return
+    try {
+      await signInWithPopup(firebaseAuth, googleProvider)
+      setAuthError('')
+      setAuthInfo('')
+    } catch {
+      setAuthError('No se pudo iniciar sesion con Google.')
+    }
+  }
+
   async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setAuthError('')
     setAuthInfo('')
     const email = authEmail.trim().toLowerCase()
     const password = authPassword.trim()
+    if (syncMode === 'cloud' && firebaseAuth && firestore) {
+      if (!email) {
+        setAuthError('Pon tu email.')
+        return
+      }
+      if (authMode === 'recover') {
+        await sendPasswordResetEmail(firebaseAuth, email)
+        setAuthInfo('Te he enviado un email para cambiar la contrasena.')
+        return
+      }
+      if (!password || (authMode === 'register' && !authName.trim())) {
+        setAuthError('Completa los campos obligatorios.')
+        return
+      }
+      const problem = passwordProblem(password)
+      if (problem) {
+        setAuthError(problem)
+        return
+      }
+      try {
+        if (authMode === 'register') {
+          const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password)
+          await updateProfile(credential.user, { displayName: authName.trim() })
+          const profile: User = {
+            id: credential.user.uid,
+            name: authName.trim(),
+            email,
+            passwordHash: '',
+            salt: '',
+            authProvider: 'password',
+            recoveryHint: authHint.trim(),
+            createdAt: new Date().toISOString(),
+          }
+          await setDoc(userDoc(credential.user.uid), cleanForFirestore(profile), { merge: true })
+          setAuthHint('')
+          return
+        }
+        await signInWithEmailAndPassword(firebaseAuth, email, password)
+        return
+      } catch {
+        setAuthError(authMode === 'register' ? 'No se pudo crear la cuenta en Firebase.' : 'Email o contrasena incorrectos.')
+        return
+      }
+    }
+
     if (authMode === 'recover') {
       await submitRecovery(email)
       return
@@ -608,6 +803,7 @@ function App() {
         email,
         passwordHash: await hashPassword(password, salt),
         salt,
+        passwordAlgo: 'pbkdf2',
         authProvider: 'password',
         recoveryHint: authHint.trim(),
         createdAt: new Date().toISOString(),
@@ -628,8 +824,15 @@ function App() {
       setAuthError('Esta cuenta se creo con Google. Entra con Google o crea una contrasena desde ajustes.')
       return
     }
-    if (user.passwordHash !== (await hashPassword(password, user.salt))) {
+    if (!(await verifySecret(password, user.salt, user.passwordHash, user.passwordAlgo))) {
       setAuthError('Contrasena incorrecta.')
+      return
+    }
+    if (user.passwordAlgo !== 'pbkdf2') {
+      const salt = uid()
+      const migratedUser = { ...user, passwordHash: await hashPassword(password, salt), salt, passwordAlgo: 'pbkdf2' as const }
+      await db.users.put(migratedUser)
+      finishLogin(migratedUser)
       return
     }
     finishLogin(user)
@@ -652,7 +855,7 @@ function App() {
       setAuthError('Esa cuenta no tiene codigo de recuperacion creado en esta pagina.')
       return
     }
-    if (user.recoveryHash !== (await hashPassword(code, user.recoverySalt))) {
+    if (!(await verifySecret(code, user.recoverySalt, user.recoveryHash, user.recoveryAlgo))) {
       setAuthError('Codigo de recuperacion incorrecto.')
       return
     }
@@ -662,6 +865,7 @@ function App() {
       authProvider: user.authProvider ?? 'password',
       passwordHash: await hashPassword(password, salt),
       salt,
+      passwordAlgo: 'pbkdf2',
     }
     await db.users.put(updatedUser)
     finishLogin(updatedUser)
@@ -751,11 +955,11 @@ function App() {
 
     const canUseCurrentPassword =
       currentUser.passwordHash &&
-      currentUser.passwordHash === (await hashPassword(changePasswordForm.current.trim(), currentUser.salt))
+      (await verifySecret(changePasswordForm.current.trim(), currentUser.salt, currentUser.passwordHash, currentUser.passwordAlgo))
     const canUseRecovery =
       currentUser.recoveryHash &&
       currentUser.recoverySalt &&
-      currentUser.recoveryHash === (await hashPassword(normalizeRecoveryCode(changePasswordForm.recovery), currentUser.recoverySalt))
+      (await verifySecret(normalizeRecoveryCode(changePasswordForm.recovery), currentUser.recoverySalt, currentUser.recoveryHash, currentUser.recoveryAlgo))
 
     if (!canUseCurrentPassword && !canUseRecovery) {
       setNotice('Contrasena actual o codigo de recuperacion incorrecto.')
@@ -768,6 +972,7 @@ function App() {
       authProvider: currentUser.authProvider ?? 'password',
       passwordHash: await hashPassword(next, salt),
       salt,
+      passwordAlgo: 'pbkdf2',
     }
     await db.users.put(updatedUser)
     setCurrentUser(updatedUser)
@@ -788,12 +993,12 @@ function App() {
       avatar: personForm.avatar,
       createdAt: people.find((person) => person.id === editingPersonId)?.createdAt ?? new Date().toISOString(),
     }
-    await db.persons.put(person)
+    await persistPerson(person)
     setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
     setEditingPersonId(null)
     setPersonId(person.id)
     setParticipantIds((current) => [...new Set([...current, person.id])])
-    await refreshData()
+    if (syncMode === 'local') await refreshData()
     setNotice(editingPersonId ? 'Persona actualizada.' : 'Persona anadida.')
   }
 
@@ -911,8 +1116,8 @@ function App() {
       record.direction = kind === 'debt' ? debtDirection : paymentDirection
     }
 
-    await db.records.put(record)
-    await refreshData()
+    await persistRecord(record)
+    if (syncMode === 'local') await refreshData()
     setNotice(editingRecordId ? 'Movimiento actualizado.' : 'Movimiento guardado.')
     resetRecordForm()
     setTab('resumen')
@@ -939,14 +1144,16 @@ function App() {
   }
 
   async function deleteRecord(recordId: string) {
-    await db.records.delete(recordId)
-    await refreshData()
+    const record = records.find((candidate) => candidate.id === recordId)
+    if (!record) return
+    await removeRecord(record)
+    if (syncMode === 'local') await refreshData()
     setNotice('Movimiento borrado.')
   }
 
   async function markRecordStatus(record: LedgerRecord, nextStatus: RecordStatus) {
-    await db.records.put({ ...record, status: nextStatus })
-    await refreshData()
+    await persistRecord({ ...record, status: nextStatus })
+    if (syncMode === 'local') await refreshData()
     setNotice(`Movimiento marcado como ${statusLabels[nextStatus].toLowerCase()}.`)
   }
 
@@ -969,8 +1176,8 @@ function App() {
       note: 'Liquidacion rapida generada desde resumen.',
       createdAt: new Date().toISOString(),
     }
-    await db.records.add(record)
-    await refreshData()
+    await persistRecord(record)
+    if (syncMode === 'local') await refreshData()
     setNotice(`Saldo de ${person.name} liquidado.`)
   }
 
@@ -996,6 +1203,14 @@ function App() {
     if (hasRecords && !window.confirm('Esta persona tiene movimientos. Si la borras tambien se borraran esos movimientos.')) {
       return
     }
+    if (currentUser && syncMode === 'cloud' && firestore) {
+      const batch = writeBatch(firestore)
+      batch.delete(doc(peopleCollection(currentUser.id), id))
+      records
+        .filter((record) => record.personId === id || record.paidBy === id || record.participantIds?.includes(id))
+        .forEach((record) => batch.delete(doc(recordsCollection(currentUser.id), record.id)))
+      await batch.commit()
+    }
     await db.transaction('rw', db.persons, db.records, async () => {
       await db.persons.delete(id)
       if (hasRecords) {
@@ -1005,7 +1220,7 @@ function App() {
         await db.records.bulkDelete(related.map((record) => record.id))
       }
     })
-    await refreshData()
+    if (syncMode === 'local') await refreshData()
     if (editingPersonId === id) resetPersonForm()
     setNotice('Persona borrada.')
   }
@@ -1065,11 +1280,17 @@ function App() {
         ...record,
         userId: currentUser.id,
       }))
+      if (syncMode === 'cloud' && firestore) {
+        const batch = writeBatch(firestore)
+        importedPeople.forEach((person) => batch.set(doc(peopleCollection(currentUser.id), person.id), cleanForFirestore(person), { merge: true }))
+        importedRecords.forEach((record) => batch.set(doc(recordsCollection(currentUser.id), record.id), cleanForFirestore(record), { merge: true }))
+        await batch.commit()
+      }
       await db.transaction('rw', db.persons, db.records, async () => {
         await db.persons.bulkPut(importedPeople)
         await db.records.bulkPut(importedRecords)
       })
-      await refreshData()
+      if (syncMode === 'local') await refreshData()
       setNotice('Datos importados.')
     } catch {
       setNotice('No se pudo importar el archivo.')
@@ -1078,7 +1299,33 @@ function App() {
     }
   }
 
+  async function migrateLocalDataToFirebase() {
+    if (!currentUser || syncMode !== 'cloud' || !firestore) return
+    const matchingLocalUser = await db.users.where('email').equals(currentUser.email).first()
+    const candidateUserIds = [...new Set([currentUser.id, matchingLocalUser?.id].filter(Boolean) as string[])]
+    const [localPeopleGroups, localRecordGroups] = await Promise.all([
+      Promise.all(candidateUserIds.map((userId) => db.persons.where('userId').equals(userId).toArray())),
+      Promise.all(candidateUserIds.map((userId) => db.records.where('userId').equals(userId).toArray())),
+    ])
+    const localPeople = localPeopleGroups.flat().map((person) => ({ ...person, userId: currentUser.id }))
+    const localRecords = localRecordGroups.flat().map((record) => ({ ...record, userId: currentUser.id }))
+    if (localPeople.length === 0 && localRecords.length === 0) {
+      setNotice('No hay datos locales que subir.')
+      return
+    }
+    const batch = writeBatch(firestore)
+    localPeople.forEach((person) => batch.set(doc(peopleCollection(currentUser.id), person.id), cleanForFirestore(person), { merge: true }))
+    localRecords.forEach((record) => batch.set(doc(recordsCollection(currentUser.id), record.id), cleanForFirestore(record), { merge: true }))
+    await batch.commit()
+    await db.persons.bulkPut(localPeople)
+    await db.records.bulkPut(localRecords)
+    setNotice('Datos locales subidos a Firebase.')
+  }
+
   function signOut() {
+    if (syncMode === 'cloud' && firebaseAuth) {
+      firebaseSignOut(firebaseAuth).catch(() => undefined)
+    }
     localStorage.removeItem(sessionKey)
     setCurrentUser(null)
     setAuthPassword('')
@@ -1096,7 +1343,7 @@ function App() {
           <div className="trust-strip">
             <span>
               <ShieldCheck aria-hidden="true" />
-              Local-first
+              {syncMode === 'cloud' ? 'Firebase Sync' : 'Local-first'}
             </span>
             <span>IndexedDB</span>
             <span>PWA</span>
@@ -1112,6 +1359,21 @@ function App() {
               Recuperar
             </button>
           </div>
+          {isFirebaseConfigured && (
+            <button
+              className="secondary-button full-button"
+              onClick={() => {
+                setSyncMode(syncMode === 'cloud' ? 'local' : 'cloud')
+                setSyncMessage(syncMode === 'cloud' ? 'Modo local' : 'Firebase activo')
+                setAuthError('')
+                setAuthInfo('')
+              }}
+              type="button"
+            >
+              <RotateCcw aria-hidden="true" />
+              {syncMode === 'cloud' ? 'Usar modo local' : 'Usar Firebase'}
+            </button>
+          )}
           <form onSubmit={submitAuth} className="form-grid">
             {authMode === 'register' && (
               <>
@@ -1143,6 +1405,8 @@ function App() {
                   autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
                 />
               </label>
+            ) : syncMode === 'cloud' ? (
+              <p className="info-text">Te enviaremos un enlace de Firebase para cambiar la contrasena de ese email.</p>
             ) : (
               <>
                 <div className="recovery-actions">
@@ -1170,12 +1434,17 @@ function App() {
             {authInfo && <p className="info-text">{authInfo}</p>}
             <button className="primary-button" type="submit">
               {authMode === 'recover' ? <KeyRound aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
-              {authMode === 'register' ? 'Crear y entrar' : authMode === 'recover' ? 'Cambiar y entrar' : 'Entrar'}
+              {authMode === 'register' ? 'Crear y entrar' : authMode === 'recover' ? (syncMode === 'cloud' ? 'Enviar email' : 'Cambiar y entrar') : 'Entrar'}
             </button>
           </form>
           <div className="auth-divider">o</div>
           <div className="google-box">
-            {googleClientId ? (
+            {syncMode === 'cloud' ? (
+              <button className="secondary-button full-button" onClick={signInWithFirebaseGoogle} type="button">
+                <ShieldCheck aria-hidden="true" />
+                Continuar con Google
+              </button>
+            ) : googleClientId ? (
               <>
                 <div id="google-signin"></div>
                 {!googleReady && <p className="info-text">Cargando inicio con Google...</p>}
@@ -1198,6 +1467,7 @@ function App() {
         <div>
           <span className="eyebrow">Hola, {currentUser.name}</span>
           <h1>Cuentas claras</h1>
+          <p className={`sync-pill ${syncMode}`}>{syncMessage}</p>
         </div>
         <button aria-label="Salir" className="icon-button" type="button" title="Salir" onClick={signOut}>
           <LogOut aria-hidden="true" />
@@ -1317,50 +1587,74 @@ function App() {
                 <KeyRound aria-hidden="true" />
               </div>
               <p className="panel-copy">
-                Cambia tu contrasena, guarda una pista y crea un kit para recuperarla si la olvidas.
+                {syncMode === 'cloud'
+                  ? 'Firebase guarda tu sesion y sincroniza tus datos entre dispositivos.'
+                  : 'Cambia tu contrasena, guarda una pista y crea un kit para recuperarla si la olvidas.'}
               </p>
               <div className="recovery-status-grid">
-                <div className={currentUser.recoveryHash ? 'recovery-status ready' : 'recovery-status warn'}>
-                  <span>Codigo</span>
-                  <strong>{currentUser.recoveryHash ? 'Activo' : 'Pendiente'}</strong>
+                <div className={syncMode === 'cloud' || currentUser.recoveryHash ? 'recovery-status ready' : 'recovery-status warn'}>
+                  <span>{syncMode === 'cloud' ? 'Nube' : 'Codigo'}</span>
+                  <strong>{syncMode === 'cloud' ? 'Firebase' : currentUser.recoveryHash ? 'Activo' : 'Pendiente'}</strong>
                 </div>
                 <div className={currentUser.recoveryHint ? 'recovery-status ready' : 'recovery-status warn'}>
                   <span>Pista</span>
                   <strong>{currentUser.recoveryHint ? 'Guardada' : 'Sin pista'}</strong>
                 </div>
               </div>
-              <form className="form-grid" onSubmit={changePassword}>
-                <label>
-                  Contrasena actual
-                  <input
-                    value={changePasswordForm.current}
-                    onChange={(event) => setChangePasswordForm({ ...changePasswordForm, current: event.target.value })}
-                    type="password"
-                    autoComplete="current-password"
-                  />
-                </label>
-                <label>
-                  Codigo de recuperacion
-                  <input
-                    value={changePasswordForm.recovery}
-                    onChange={(event) => setChangePasswordForm({ ...changePasswordForm, recovery: event.target.value })}
-                    placeholder="Alternativa a la contrasena actual"
-                  />
-                </label>
-                <label>
-                  Nueva contrasena
-                  <input
-                    value={changePasswordForm.next}
-                    onChange={(event) => setChangePasswordForm({ ...changePasswordForm, next: event.target.value })}
-                    type="password"
-                    autoComplete="new-password"
-                  />
-                </label>
-                <button className="secondary-button" type="submit">
-                  <Save aria-hidden="true" />
-                  Cambiar contrasena
-                </button>
-              </form>
+              {syncMode === 'cloud' ? (
+                <div className="button-row">
+                  <button
+                    className="secondary-button"
+                    disabled={!currentUser.email}
+                    onClick={async () => {
+                      if (!firebaseAuth || !currentUser.email) return
+                      await sendPasswordResetEmail(firebaseAuth, currentUser.email)
+                      setNotice('Email de cambio de contrasena enviado.')
+                    }}
+                    type="button"
+                  >
+                    <KeyRound aria-hidden="true" />
+                    Email de reset
+                  </button>
+                  <button className="secondary-button" onClick={migrateLocalDataToFirebase} type="button">
+                    <Upload aria-hidden="true" />
+                    Subir datos locales
+                  </button>
+                </div>
+              ) : (
+                <form className="form-grid" onSubmit={changePassword}>
+                  <label>
+                    Contrasena actual
+                    <input
+                      value={changePasswordForm.current}
+                      onChange={(event) => setChangePasswordForm({ ...changePasswordForm, current: event.target.value })}
+                      type="password"
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <label>
+                    Codigo de recuperacion
+                    <input
+                      value={changePasswordForm.recovery}
+                      onChange={(event) => setChangePasswordForm({ ...changePasswordForm, recovery: event.target.value })}
+                      placeholder="Alternativa a la contrasena actual"
+                    />
+                  </label>
+                  <label>
+                    Nueva contrasena
+                    <input
+                      value={changePasswordForm.next}
+                      onChange={(event) => setChangePasswordForm({ ...changePasswordForm, next: event.target.value })}
+                      type="password"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <button className="secondary-button" type="submit">
+                    <Save aria-hidden="true" />
+                    Cambiar contrasena
+                  </button>
+                </form>
+              )}
               <form className="form-grid" onSubmit={saveRecoveryHint}>
                 <label>
                   Pista de recuperacion
@@ -1375,23 +1669,27 @@ function App() {
                   Guardar pista
                 </button>
               </form>
-              <button className="secondary-button full-button" type="button" onClick={generateRecoveryForCurrentUser}>
-                <KeyRound aria-hidden="true" />
-                {currentUser.recoveryHash ? 'Crear codigo nuevo' : 'Crear codigo de recuperacion'}
-              </button>
-              {recoveryCodeToShow && (
-                <div className="recovery-card">
-                  <span>Guarda este codigo</span>
-                  <strong>{recoveryCodeToShow}</strong>
-                  <button className="secondary-button" type="button" onClick={copyRecoveryCode}>
-                    <Copy aria-hidden="true" />
-                    Copiar
+              {syncMode === 'local' && (
+                <>
+                  <button className="secondary-button full-button" type="button" onClick={generateRecoveryForCurrentUser}>
+                    <KeyRound aria-hidden="true" />
+                    {currentUser.recoveryHash ? 'Crear codigo nuevo' : 'Crear codigo de recuperacion'}
                   </button>
-                  <button className="secondary-button" type="button" onClick={downloadRecoveryKit}>
-                    <Download aria-hidden="true" />
-                    Descargar kit
-                  </button>
-                </div>
+                  {recoveryCodeToShow && (
+                    <div className="recovery-card">
+                      <span>Guarda este codigo</span>
+                      <strong>{recoveryCodeToShow}</strong>
+                      <button className="secondary-button" type="button" onClick={copyRecoveryCode}>
+                        <Copy aria-hidden="true" />
+                        Copiar
+                      </button>
+                      <button className="secondary-button" type="button" onClick={downloadRecoveryKit}>
+                        <Download aria-hidden="true" />
+                        Descargar kit
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </section>
 
