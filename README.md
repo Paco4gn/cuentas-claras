@@ -100,3 +100,10 @@ npm run build
 ```bash
 npm run test:e2e
 ```
+
+Smoke opcional contra Firebase/produccion:
+
+```bash
+$env:E2E_CLOUD='1'
+npx playwright test tests/cloud-smoke.spec.ts --project=desktop
+```
