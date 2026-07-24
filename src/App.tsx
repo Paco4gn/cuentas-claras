@@ -174,6 +174,7 @@ const cleanForFirestore = <T,>(value: T) => JSON.parse(JSON.stringify(value)) as
 const userDoc = (userId: string) => doc(firestore!, 'users', userId)
 const peopleCollection = (userId: string) => collection(firestore!, 'users', userId, 'persons')
 const recordsCollection = (userId: string) => collection(firestore!, 'users', userId, 'records')
+const firestoreBatchLimit = 450
 
 const statusLabels: Record<RecordStatus, string> = {
   'por-pagar': 'Por pagar',
@@ -369,6 +370,60 @@ function imageFileToAvatar(file: File) {
     }
     reader.readAsDataURL(file)
   })
+}
+
+async function saveManyToFirestore(userId: string, importedPeople: Person[], importedRecords: LedgerRecord[]) {
+  if (!firestore) return
+  const operations = [
+    ...importedPeople.map((person) => ({ type: 'person' as const, value: person })),
+    ...importedRecords.map((record) => ({ type: 'record' as const, value: record })),
+  ]
+
+  for (let index = 0; index < operations.length; index += firestoreBatchLimit) {
+    const batch = writeBatch(firestore)
+    operations.slice(index, index + firestoreBatchLimit).forEach((operation) => {
+      if (operation.type === 'person') {
+        batch.set(doc(peopleCollection(userId), operation.value.id), cleanForFirestore(operation.value), { merge: true })
+      } else {
+        batch.set(doc(recordsCollection(userId), operation.value.id), cleanForFirestore(operation.value), { merge: true })
+      }
+    })
+    await batch.commit()
+  }
+}
+
+async function deletePersonAndRecordsFromFirestore(userId: string, personIdToDelete: string, recordIds: string[]) {
+  if (!firestore) return
+  const allDeletes = [personIdToDelete, ...recordIds]
+
+  for (let index = 0; index < allDeletes.length; index += firestoreBatchLimit) {
+    const batch = writeBatch(firestore)
+    allDeletes.slice(index, index + firestoreBatchLimit).forEach((id, offset) => {
+      if (index === 0 && offset === 0) {
+        batch.delete(doc(peopleCollection(userId), personIdToDelete))
+      } else {
+        batch.delete(doc(recordsCollection(userId), id))
+      }
+    })
+    await batch.commit()
+  }
+}
+
+function firebaseAuthMessage(error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  if (code === 'auth/configuration-not-found' || code === 'auth/operation-not-allowed') {
+    return 'Firebase Auth aun no esta activado. En Firebase Console activa Email/Password y Google en Authentication.'
+  }
+  if (code === 'auth/popup-closed-by-user') return 'Inicio con Google cancelado.'
+  if (code === 'auth/popup-blocked') return 'El navegador bloqueo la ventana de Google. Permite popups para esta pagina.'
+  if (code === 'auth/unauthorized-domain') return 'Este dominio no esta autorizado en Firebase Authentication.'
+  if (code === 'auth/email-already-in-use') return 'Ya existe una cuenta con ese email.'
+  if (code === 'auth/invalid-email') return 'Ese email no parece valido.'
+  if (code === 'auth/weak-password') return 'La contrasena es demasiado debil.'
+  if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+    return 'Email o contrasena incorrectos.'
+  }
+  return 'Firebase no pudo completar la operacion. Revisa la configuracion y vuelve a intentarlo.'
 }
 
 function App() {
@@ -719,8 +774,10 @@ function App() {
       await signInWithPopup(firebaseAuth, googleProvider)
       setAuthError('')
       setAuthInfo('')
-    } catch {
-      setAuthError('No se pudo iniciar sesion con Google.')
+    } catch (error) {
+      const message = firebaseAuthMessage(error)
+      setAuthError(message)
+      if (message.includes('no esta activado')) setSyncMessage('Firebase Auth pendiente de activar')
     }
   }
 
@@ -736,8 +793,14 @@ function App() {
         return
       }
       if (authMode === 'recover') {
-        await sendPasswordResetEmail(firebaseAuth, email)
-        setAuthInfo('Te he enviado un email para cambiar la contrasena.')
+        try {
+          await sendPasswordResetEmail(firebaseAuth, email)
+          setAuthInfo('Te he enviado un email para cambiar la contrasena.')
+        } catch (error) {
+          const message = firebaseAuthMessage(error)
+          setAuthError(message)
+          if (message.includes('no esta activado')) setSyncMessage('Firebase Auth pendiente de activar')
+        }
         return
       }
       if (!password || (authMode === 'register' && !authName.trim())) {
@@ -769,8 +832,10 @@ function App() {
         }
         await signInWithEmailAndPassword(firebaseAuth, email, password)
         return
-      } catch {
-        setAuthError(authMode === 'register' ? 'No se pudo crear la cuenta en Firebase.' : 'Email o contrasena incorrectos.')
+      } catch (error) {
+        const message = firebaseAuthMessage(error)
+        setAuthError(message)
+        if (message.includes('no esta activado')) setSyncMessage('Firebase Auth pendiente de activar')
         return
       }
     }
@@ -1204,12 +1269,10 @@ function App() {
       return
     }
     if (currentUser && syncMode === 'cloud' && firestore) {
-      const batch = writeBatch(firestore)
-      batch.delete(doc(peopleCollection(currentUser.id), id))
-      records
+      const relatedIds = records
         .filter((record) => record.personId === id || record.paidBy === id || record.participantIds?.includes(id))
-        .forEach((record) => batch.delete(doc(recordsCollection(currentUser.id), record.id)))
-      await batch.commit()
+        .map((record) => record.id)
+      await deletePersonAndRecordsFromFirestore(currentUser.id, id, relatedIds)
     }
     await db.transaction('rw', db.persons, db.records, async () => {
       await db.persons.delete(id)
@@ -1281,10 +1344,7 @@ function App() {
         userId: currentUser.id,
       }))
       if (syncMode === 'cloud' && firestore) {
-        const batch = writeBatch(firestore)
-        importedPeople.forEach((person) => batch.set(doc(peopleCollection(currentUser.id), person.id), cleanForFirestore(person), { merge: true }))
-        importedRecords.forEach((record) => batch.set(doc(recordsCollection(currentUser.id), record.id), cleanForFirestore(record), { merge: true }))
-        await batch.commit()
+        await saveManyToFirestore(currentUser.id, importedPeople, importedRecords)
       }
       await db.transaction('rw', db.persons, db.records, async () => {
         await db.persons.bulkPut(importedPeople)
@@ -1313,10 +1373,7 @@ function App() {
       setNotice('No hay datos locales que subir.')
       return
     }
-    const batch = writeBatch(firestore)
-    localPeople.forEach((person) => batch.set(doc(peopleCollection(currentUser.id), person.id), cleanForFirestore(person), { merge: true }))
-    localRecords.forEach((record) => batch.set(doc(recordsCollection(currentUser.id), record.id), cleanForFirestore(record), { merge: true }))
-    await batch.commit()
+    await saveManyToFirestore(currentUser.id, localPeople, localRecords)
     await db.persons.bulkPut(localPeople)
     await db.records.bulkPut(localRecords)
     setNotice('Datos locales subidos a Firebase.')
@@ -1608,8 +1665,14 @@ function App() {
                     disabled={!currentUser.email}
                     onClick={async () => {
                       if (!firebaseAuth || !currentUser.email) return
-                      await sendPasswordResetEmail(firebaseAuth, currentUser.email)
-                      setNotice('Email de cambio de contrasena enviado.')
+                      try {
+                        await sendPasswordResetEmail(firebaseAuth, currentUser.email)
+                        setNotice('Email de cambio de contrasena enviado.')
+                      } catch (error) {
+                        const message = firebaseAuthMessage(error)
+                        setNotice(message)
+                        if (message.includes('no esta activado')) setSyncMessage('Firebase Auth pendiente de activar')
+                      }
                     }}
                     type="button"
                   >
