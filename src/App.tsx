@@ -17,6 +17,7 @@ import {
   onSnapshot,
   query as firestoreQuery,
   setDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadString } from 'firebase/storage'
@@ -34,6 +35,7 @@ import {
   Edit3,
   FileSpreadsheet,
   FileText,
+  FolderKanban,
   KeyRound,
   LogOut,
   MessageCircle,
@@ -60,7 +62,7 @@ type RecordKind = 'split' | 'debt' | 'payment'
 type RecordStatus = 'por-pagar' | 'parcial' | 'pagado'
 type DebtDirection = 'owes_me' | 'i_owe'
 type PaymentDirection = 'person_paid_me' | 'i_paid_person'
-type Tab = 'resumen' | 'nuevo' | 'personas' | 'historial'
+type Tab = 'resumen' | 'nuevo' | 'personas' | 'historial' | 'grupos'
 type StatusFilter = 'todos' | RecordStatus | 'vencidos'
 type AuthMode = 'login' | 'register' | 'recover'
 type SyncMode = 'cloud' | 'local'
@@ -112,6 +114,16 @@ interface Person {
   avatar?: string
   avatarStoragePath?: string
   createdAt: string
+}
+
+interface SharedGroup {
+  id: string
+  name: string
+  ownerId: string
+  ownerEmail: string
+  memberEmails: string[]
+  createdAt: string
+  updatedAt: string
 }
 
 interface LedgerRecord {
@@ -176,6 +188,11 @@ const cleanForFirestore = <T,>(value: T) => JSON.parse(JSON.stringify(value)) as
 const userDoc = (userId: string) => doc(firestore!, 'users', userId)
 const peopleCollection = (userId: string) => collection(firestore!, 'users', userId, 'persons')
 const recordsCollection = (userId: string) => collection(firestore!, 'users', userId, 'records')
+const groupDoc = (groupId: string) => doc(firestore!, 'groups', groupId)
+const groupPeopleCollection = (groupId: string) => collection(firestore!, 'groups', groupId, 'persons')
+const groupRecordsCollection = (groupId: string) => collection(firestore!, 'groups', groupId, 'records')
+const ledgerPeopleCollection = (ledgerId: string, sharedLedger: boolean) => sharedLedger ? groupPeopleCollection(ledgerId) : peopleCollection(ledgerId)
+const ledgerRecordsCollection = (ledgerId: string, sharedLedger: boolean) => sharedLedger ? groupRecordsCollection(ledgerId) : recordsCollection(ledgerId)
 const firestoreBatchLimit = 450
 
 const statusLabels: Record<RecordStatus, string> = {
@@ -273,6 +290,17 @@ function tagsFromText(value: string) {
     .split(',')
     .map((tagValue) => tagValue.trim())
     .filter(Boolean)
+}
+
+function emailsFromText(value: string) {
+  return [
+    ...new Set(
+      value
+        .split(/[\s,;]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.includes('@')),
+    ),
+  ]
 }
 
 function sortRecords(records: LedgerRecord[]) {
@@ -374,7 +402,7 @@ function imageFileToAvatar(file: File) {
   })
 }
 
-async function saveManyToFirestore(userId: string, importedPeople: Person[], importedRecords: LedgerRecord[]) {
+async function saveManyToFirestore(ledgerId: string, importedPeople: Person[], importedRecords: LedgerRecord[], sharedLedger = false) {
   if (!firestore) return
   const operations = [
     ...importedPeople.map((person) => ({ type: 'person' as const, value: person })),
@@ -385,16 +413,18 @@ async function saveManyToFirestore(userId: string, importedPeople: Person[], imp
     const batch = writeBatch(firestore)
     operations.slice(index, index + firestoreBatchLimit).forEach((operation) => {
       if (operation.type === 'person') {
-        batch.set(doc(peopleCollection(userId), operation.value.id), cleanForFirestore(operation.value), { merge: true })
+        const targetCollection = sharedLedger ? groupPeopleCollection : peopleCollection
+        batch.set(doc(targetCollection(ledgerId), operation.value.id), cleanForFirestore(operation.value), { merge: true })
       } else {
-        batch.set(doc(recordsCollection(userId), operation.value.id), cleanForFirestore(operation.value), { merge: true })
+        const targetCollection = sharedLedger ? groupRecordsCollection : recordsCollection
+        batch.set(doc(targetCollection(ledgerId), operation.value.id), cleanForFirestore(operation.value), { merge: true })
       }
     })
     await batch.commit()
   }
 }
 
-async function deletePersonAndRecordsFromFirestore(userId: string, personIdToDelete: string, recordIds: string[]) {
+async function deletePersonAndRecordsFromFirestore(ledgerId: string, personIdToDelete: string, recordIds: string[], sharedLedger = false) {
   if (!firestore) return
   const allDeletes = [personIdToDelete, ...recordIds]
 
@@ -402,9 +432,9 @@ async function deletePersonAndRecordsFromFirestore(userId: string, personIdToDel
     const batch = writeBatch(firestore)
     allDeletes.slice(index, index + firestoreBatchLimit).forEach((id, offset) => {
       if (index === 0 && offset === 0) {
-        batch.delete(doc(peopleCollection(userId), personIdToDelete))
+        batch.delete(doc((sharedLedger ? groupPeopleCollection : peopleCollection)(ledgerId), personIdToDelete))
       } else {
-        batch.delete(doc(recordsCollection(userId), id))
+        batch.delete(doc((sharedLedger ? groupRecordsCollection : recordsCollection)(ledgerId), id))
       }
     })
     await batch.commit()
@@ -445,6 +475,10 @@ function App() {
   const [googleReady, setGoogleReady] = useState(false)
   const [people, setPeople] = useState<Person[]>([])
   const [records, setRecords] = useState<LedgerRecord[]>([])
+  const [groups, setGroups] = useState<SharedGroup[]>([])
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [groupForm, setGroupForm] = useState({ name: '', memberEmails: '' })
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('resumen')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
@@ -469,6 +503,9 @@ function App() {
   const [notice, setNotice] = useState('')
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
+  const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
+  const activeLedgerId = activeGroup?.id ?? currentUser?.id ?? ''
+  const isSharedLedger = Boolean(activeGroup)
 
   useEffect(() => {
     if (isFirebaseConfigured && firebaseAuth && firestore) {
@@ -479,6 +516,8 @@ function App() {
           setCurrentUser(null)
           setPeople([])
           setRecords([])
+          setGroups([])
+          setActiveGroupId(null)
           setSyncMessage('Firebase listo')
           return
         }
@@ -513,9 +552,29 @@ function App() {
   useEffect(() => {
     if (!currentUser) return
     setAccountHint(currentUser.recoveryHint ?? '')
+    if (syncMode !== 'cloud' || !firestore || !currentUser.email) {
+      setGroups([])
+      setActiveGroupId(null)
+      return
+    }
+
+    const groupsQuery = firestoreQuery(collection(firestore, 'groups'), where('memberEmails', 'array-contains', currentUser.email))
+    return onSnapshot(
+      groupsQuery,
+      (snapshot) => {
+        const nextGroups = snapshot.docs.map((groupSnapshot) => groupSnapshot.data() as SharedGroup).sort((a, b) => a.name.localeCompare(b.name))
+        setGroups(nextGroups)
+        setActiveGroupId((current) => (current && nextGroups.some((group) => group.id === current) ? current : null))
+      },
+      () => setSyncMessage('Firebase: error leyendo grupos'),
+    )
+  }, [currentUser, syncMode])
+
+  useEffect(() => {
+    if (!currentUser || !activeLedgerId) return
     if (syncMode === 'cloud' && firestore) {
       const unsubscribePeople = onSnapshot(
-        firestoreQuery(peopleCollection(currentUser.id)),
+        firestoreQuery(ledgerPeopleCollection(activeLedgerId, isSharedLedger)),
         (snapshot) => {
           const nextPeople = snapshot.docs.map((personDoc) => personDoc.data() as Person).sort((a, b) => a.name.localeCompare(b.name))
           setPeople(nextPeople)
@@ -526,7 +585,7 @@ function App() {
         () => setSyncMessage('Firebase: error leyendo personas'),
       )
       const unsubscribeRecords = onSnapshot(
-        firestoreQuery(recordsCollection(currentUser.id)),
+        firestoreQuery(ledgerRecordsCollection(activeLedgerId, isSharedLedger)),
         (snapshot) => {
           const nextRecords = sortRecords(snapshot.docs.map((recordDoc) => recordDoc.data() as LedgerRecord))
           setRecords(nextRecords)
@@ -541,15 +600,15 @@ function App() {
     }
 
     Promise.all([
-      db.persons.where('userId').equals(currentUser.id).sortBy('name'),
-      db.records.where('userId').equals(currentUser.id).toArray(),
+      db.persons.where('userId').equals(activeLedgerId).sortBy('name'),
+      db.records.where('userId').equals(activeLedgerId).toArray(),
     ]).then(([storedPeople, storedRecords]) => {
       setPeople(storedPeople)
       setRecords(sortRecords(storedRecords))
       setShares(emptyShares(storedPeople))
       if (storedPeople[0]) setPersonId(storedPeople[0].id)
     })
-  }, [currentUser, personId, syncMode])
+  }, [activeLedgerId, currentUser, isSharedLedger, personId, syncMode])
 
   useEffect(() => {
     if (!notice) return
@@ -674,11 +733,11 @@ function App() {
   const splitDifference = Number((Number(amount || 0) - shareTotal).toFixed(2))
   const selectedPersonBalance = personId ? balances.get(personId) ?? 0 : 0
 
-  async function refreshData(userId = currentUser?.id) {
-    if (!userId) return
+  async function refreshData(ledgerId = activeLedgerId) {
+    if (!ledgerId) return
     const [storedPeople, storedRecords] = await Promise.all([
-      db.persons.where('userId').equals(userId).sortBy('name'),
-      db.records.where('userId').equals(userId).toArray(),
+      db.persons.where('userId').equals(ledgerId).sortBy('name'),
+      db.records.where('userId').equals(ledgerId).toArray(),
     ])
     setPeople(storedPeople)
     setRecords(sortRecords(storedRecords))
@@ -689,7 +748,7 @@ function App() {
   async function persistPerson(person: Person) {
     if (syncMode === 'cloud' && firestore) {
       setSyncMessage('Subiendo persona a Firebase...')
-      await setDoc(doc(peopleCollection(person.userId), person.id), cleanForFirestore(person), { merge: true })
+      await setDoc(doc(ledgerPeopleCollection(activeLedgerId, isSharedLedger), person.id), cleanForFirestore(person), { merge: true })
       setSyncMessage('Sincronizado con Firebase')
     }
     await db.persons.put(person)
@@ -698,7 +757,7 @@ function App() {
   async function persistRecord(record: LedgerRecord) {
     if (syncMode === 'cloud' && firestore) {
       setSyncMessage('Subiendo movimiento a Firebase...')
-      await setDoc(doc(recordsCollection(record.userId), record.id), cleanForFirestore(record), { merge: true })
+      await setDoc(doc(ledgerRecordsCollection(activeLedgerId, isSharedLedger), record.id), cleanForFirestore(record), { merge: true })
       setSyncMessage('Sincronizado con Firebase')
     }
     await db.records.put(record)
@@ -707,7 +766,7 @@ function App() {
   async function removeRecord(record: LedgerRecord) {
     if (syncMode === 'cloud' && firestore) {
       setSyncMessage('Borrando movimiento en Firebase...')
-      await deleteDoc(doc(recordsCollection(record.userId), record.id))
+      await deleteDoc(doc(ledgerRecordsCollection(activeLedgerId, isSharedLedger), record.id))
       setSyncMessage('Sincronizado con Firebase')
     }
     await db.records.delete(record.id)
@@ -1084,11 +1143,11 @@ function App() {
 
   async function submitPerson(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!currentUser || !personForm.name.trim()) return
+    if (!currentUser || !activeLedgerId || !personForm.name.trim()) return
     const previousPerson = people.find((person) => person.id === editingPersonId)
     const person: Person = {
       id: editingPersonId ?? uid(),
-      userId: currentUser.id,
+      userId: activeLedgerId,
       name: personForm.name.trim(),
       phone: personForm.phone.trim(),
       email: personForm.email.trim(),
@@ -1186,7 +1245,7 @@ function App() {
 
   async function submitRecord(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!currentUser) return
+    if (!currentUser || !activeLedgerId) return
     const validationError = validateRecordForm()
     if (validationError) {
       setFormError(validationError)
@@ -1197,7 +1256,7 @@ function App() {
     const numericAmount = Number(amount)
     const record: LedgerRecord = {
       id: existing?.id ?? uid(),
-      userId: currentUser.id,
+      userId: activeLedgerId,
       kind,
       title: title.trim(),
       amount: numericAmount,
@@ -1264,12 +1323,12 @@ function App() {
   }
 
   async function settlePerson(person: Person) {
-    if (!currentUser) return
+    if (!currentUser || !activeLedgerId) return
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     if (balance === 0) return
     const record: LedgerRecord = {
       id: uid(),
-      userId: currentUser.id,
+      userId: activeLedgerId,
       kind: 'payment',
       title: balance > 0 ? `Pago recibido de ${person.name}` : `Pago enviado a ${person.name}`,
       amount: Math.abs(balance),
@@ -1309,11 +1368,11 @@ function App() {
     if (hasRecords && !window.confirm('Esta persona tiene movimientos. Si la borras tambien se borraran esos movimientos.')) {
       return
     }
-    if (currentUser && syncMode === 'cloud' && firestore) {
+    if (currentUser && activeLedgerId && syncMode === 'cloud' && firestore) {
       const relatedIds = records
         .filter((record) => record.personId === id || record.paidBy === id || record.participantIds?.includes(id))
         .map((record) => record.id)
-      await deletePersonAndRecordsFromFirestore(currentUser.id, id, relatedIds)
+      await deletePersonAndRecordsFromFirestore(activeLedgerId, id, relatedIds, isSharedLedger)
     }
     await db.transaction('rw', db.persons, db.records, async () => {
       await db.persons.delete(id)
@@ -1373,19 +1432,19 @@ function App() {
   }
 
   async function importData(event: React.ChangeEvent<HTMLInputElement>) {
-    if (!currentUser || !event.target.files?.[0]) return
+    if (!currentUser || !activeLedgerId || !event.target.files?.[0]) return
     try {
       const payload = JSON.parse(await event.target.files[0].text()) as ImportPayload
       const importedPeople = (payload.persons ?? payload.people ?? []).map((person) => ({
         ...person,
-        userId: currentUser.id,
+        userId: activeLedgerId,
       }))
       const importedRecords = (payload.records ?? []).map((record) => ({
         ...record,
-        userId: currentUser.id,
+        userId: activeLedgerId,
       }))
       if (syncMode === 'cloud' && firestore) {
-        await saveManyToFirestore(currentUser.id, importedPeople, importedRecords)
+        await saveManyToFirestore(activeLedgerId, importedPeople, importedRecords, isSharedLedger)
       }
       await db.transaction('rw', db.persons, db.records, async () => {
         await db.persons.bulkPut(importedPeople)
@@ -1402,6 +1461,10 @@ function App() {
 
   async function migrateLocalDataToFirebase() {
     if (!currentUser || syncMode !== 'cloud' || !firestore) return
+    if (isSharedLedger) {
+      setNotice('Cambia a Personal para subir tus datos locales.')
+      return
+    }
     const matchingLocalUser = await db.users.where('email').equals(currentUser.email).first()
     const candidateUserIds = [...new Set([currentUser.id, matchingLocalUser?.id].filter(Boolean) as string[])]
     const [localPeopleGroups, localRecordGroups] = await Promise.all([
@@ -1418,6 +1481,72 @@ function App() {
     await db.persons.bulkPut(localPeople)
     await db.records.bulkPut(localRecords)
     setNotice('Datos locales subidos a Firebase.')
+  }
+
+  function selectLedger(groupId: string | null) {
+    setActiveGroupId(groupId)
+    setPeople([])
+    setRecords([])
+    setPersonId('')
+    setEditingPersonId(null)
+    setEditingRecordId(null)
+    setTab('resumen')
+    setSyncMessage(groupId ? 'Grupo compartido activo' : syncMode === 'cloud' ? 'Libreta personal activa' : 'Modo local')
+  }
+
+  async function submitGroup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!currentUser || syncMode !== 'cloud' || !firestore || !currentUser.email) {
+      setNotice('Los grupos compartidos necesitan Firebase.')
+      return
+    }
+    const name = groupForm.name.trim()
+    if (!name) {
+      setNotice('Pon un nombre para el grupo.')
+      return
+    }
+    const existing = editingGroupId ? groups.find((group) => group.id === editingGroupId) : undefined
+    const memberEmails = [...new Set([currentUser.email, ...emailsFromText(groupForm.memberEmails)])]
+    const group: SharedGroup = {
+      id: existing?.id ?? uid(),
+      name,
+      ownerId: existing?.ownerId ?? currentUser.id,
+      ownerEmail: existing?.ownerEmail ?? currentUser.email,
+      memberEmails,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    await setDoc(groupDoc(group.id), cleanForFirestore(group), { merge: true })
+    setGroupForm({ name: '', memberEmails: '' })
+    setEditingGroupId(null)
+    setActiveGroupId(group.id)
+    setNotice(existing ? 'Grupo actualizado.' : 'Grupo creado.')
+  }
+
+  function startEditGroup(group: SharedGroup) {
+    setGroupForm({ name: group.name, memberEmails: group.memberEmails.filter((email) => email !== currentUser?.email).join(', ') })
+    setEditingGroupId(group.id)
+    setTab('grupos')
+  }
+
+  async function leaveGroup(group: SharedGroup) {
+    if (!currentUser?.email || !firestore) return
+    if (group.ownerId === currentUser.id) {
+      setNotice('Eres propietario. Borra el grupo si quieres cerrarlo.')
+      return
+    }
+    const memberEmails = group.memberEmails.filter((email) => email !== currentUser.email)
+    await setDoc(groupDoc(group.id), { memberEmails, updatedAt: new Date().toISOString() }, { merge: true })
+    if (activeGroupId === group.id) selectLedger(null)
+    setNotice('Has salido del grupo.')
+  }
+
+  async function deleteGroup(group: SharedGroup) {
+    if (!currentUser || !firestore || group.ownerId !== currentUser.id) return
+    if (!window.confirm('Vas a borrar este grupo compartido para todos.')) return
+    await deleteDoc(groupDoc(group.id))
+    if (activeGroupId === group.id) selectLedger(null)
+    setNotice('Grupo borrado.')
   }
 
   async function refreshInstalledApp() {
@@ -1439,6 +1568,8 @@ function App() {
     }
     localStorage.removeItem(sessionKey)
     setCurrentUser(null)
+    setGroups([])
+    setActiveGroupId(null)
     setAuthPassword('')
   }
 
@@ -1578,12 +1709,31 @@ function App() {
         <div>
           <span className="eyebrow">Hola, {currentUser.name}</span>
           <h1>Cuentas claras</h1>
-          <p className={`sync-pill ${syncMode}`}>{syncMessage}</p>
+          <p className={`sync-pill ${syncMode}`}>{syncMessage} / {activeGroup ? activeGroup.name : 'Personal'}</p>
         </div>
         <button aria-label="Salir" className="icon-button" type="button" title="Salir" onClick={signOut}>
           <LogOut aria-hidden="true" />
         </button>
       </header>
+
+      {syncMode === 'cloud' && (
+        <section className="ledger-switcher" aria-label="Libreta activa">
+          <button className={!activeGroupId ? 'active' : ''} onClick={() => selectLedger(null)} type="button">
+            <WalletCards aria-hidden="true" />
+            Personal
+          </button>
+          {groups.map((group) => (
+            <button className={activeGroupId === group.id ? 'active' : ''} key={group.id} onClick={() => selectLedger(group.id)} type="button">
+              <FolderKanban aria-hidden="true" />
+              {group.name}
+            </button>
+          ))}
+          <button className="add-ledger" onClick={() => setTab('grupos')} type="button">
+            <Plus aria-hidden="true" />
+            Grupo
+          </button>
+        </section>
+      )}
 
       <section className="summary-grid">
         <Metric icon={<ArrowUpRight aria-hidden="true" />} label="Me deben" value={summary.owedToMe} tone="positive" />
@@ -1597,6 +1747,7 @@ function App() {
           ['nuevo', Plus, editingRecordId ? 'Editar' : 'Nuevo'],
           ['personas', Users, 'Personas'],
           ['historial', ReceiptText, 'Historial'],
+          ['grupos', FolderKanban, 'Grupos'],
         ].map(([id, Icon, label]) => (
           <button key={id as string} className={tab === id ? 'active' : ''} onClick={() => setTab(id as Tab)} type="button">
             <Icon aria-hidden="true" />
@@ -1934,6 +2085,98 @@ function App() {
                   <button aria-label="Borrar persona" className="icon-button danger" type="button" title="Borrar persona" onClick={() => deletePerson(person.id)}>
                     <Trash2 aria-hidden="true" />
                   </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === 'grupos' && (
+        <section className="content-grid two-columns">
+          <form className="panel form-grid" onSubmit={submitGroup}>
+            <div className="section-heading compact">
+              <h2>{editingGroupId ? 'Editar grupo' : 'Grupo compartido'}</h2>
+              <FolderKanban aria-hidden="true" />
+            </div>
+            {syncMode !== 'cloud' ? (
+              <p className="info-text">Los grupos compartidos necesitan iniciar sesion con Firebase.</p>
+            ) : (
+              <>
+                <label>
+                  Nombre del grupo
+                  <input value={groupForm.name} onChange={(event) => setGroupForm({ ...groupForm, name: event.target.value })} placeholder="Piso, viaje, familia..." />
+                </label>
+                <label>
+                  Emails invitados
+                  <textarea
+                    value={groupForm.memberEmails}
+                    onChange={(event) => setGroupForm({ ...groupForm, memberEmails: event.target.value })}
+                    placeholder="ana@email.com, juan@email.com"
+                  />
+                </label>
+                <p className="info-text">Tu email se incluye siempre. Los invitados veran el grupo al entrar con ese mismo email.</p>
+                <div className="button-row">
+                  <button className="primary-button" type="submit">
+                    {editingGroupId ? <Save aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                    {editingGroupId ? 'Guardar grupo' : 'Crear grupo'}
+                  </button>
+                  {editingGroupId && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setEditingGroupId(null)
+                        setGroupForm({ name: '', memberEmails: '' })
+                      }}
+                      type="button"
+                    >
+                      <X aria-hidden="true" />
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </form>
+
+          <div className="person-list">
+            <article className={`group-card ${!activeGroupId ? 'active' : ''}`}>
+              <div>
+                <h3>Personal</h3>
+                <p>Solo tus cuentas y tus datos.</p>
+              </div>
+              <button className="secondary-button" onClick={() => selectLedger(null)} type="button">
+                <WalletCards aria-hidden="true" />
+                Abrir
+              </button>
+            </article>
+            {groups.length === 0 && syncMode === 'cloud' && <EmptyState text="Crea un grupo para compartir gastos con otras personas." />}
+            {groups.map((group) => (
+              <article className={`group-card ${activeGroupId === group.id ? 'active' : ''}`} key={group.id}>
+                <div>
+                  <h3>{group.name}</h3>
+                  <p>{group.memberEmails.join(' / ')}</p>
+                </div>
+                <div className="row-actions">
+                  <button className="secondary-button" onClick={() => selectLedger(group.id)} type="button">
+                    <FolderKanban aria-hidden="true" />
+                    Abrir
+                  </button>
+                  {group.ownerId === currentUser.id ? (
+                    <>
+                      <button aria-label="Editar grupo" className="icon-button" onClick={() => startEditGroup(group)} title="Editar grupo" type="button">
+                        <Edit3 aria-hidden="true" />
+                      </button>
+                      <button aria-label="Borrar grupo" className="icon-button danger" onClick={() => deleteGroup(group)} title="Borrar grupo" type="button">
+                        <Trash2 aria-hidden="true" />
+                      </button>
+                    </>
+                  ) : (
+                    <button className="secondary-button" onClick={() => leaveGroup(group)} type="button">
+                      <X aria-hidden="true" />
+                      Salir
+                    </button>
+                  )}
                 </div>
               </article>
             ))}

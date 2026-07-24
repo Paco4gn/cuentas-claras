@@ -6,6 +6,15 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function signedEmail() {
+      return request.auth.token.email;
+    }
+
+    function canReadGroupData(groupId) {
+      return request.auth != null
+        && signedEmail() in get(/databases/$(database)/documents/groups/$(groupId)).data.memberEmails;
+    }
+
     function validPerson(userId) {
       return request.resource.data.userId == userId
         && request.resource.data.name is string
@@ -35,6 +44,28 @@ service cloud.firestore {
       match /records/{recordId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId) && validRecord(userId);
+      }
+    }
+
+    match /groups/{groupId} {
+      allow read: if request.auth != null && signedEmail() in resource.data.memberEmails;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid
+        && signedEmail() in request.resource.data.memberEmails;
+      allow update: if request.auth != null
+        && signedEmail() in resource.data.memberEmails
+        && signedEmail() in request.resource.data.memberEmails
+        && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+
+      match /persons/{personId} {
+        allow read, delete: if canReadGroupData(groupId);
+        allow create, update: if canReadGroupData(groupId) && validPerson(groupId);
+      }
+
+      match /records/{recordId} {
+        allow read, delete: if canReadGroupData(groupId);
+        allow create, update: if canReadGroupData(groupId) && validRecord(groupId);
       }
     }
   }

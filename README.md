@@ -11,6 +11,7 @@ PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pago
 - Sincronizacion cloud con Firestore y copia local en IndexedDB.
 - Personas con telefono, email, notas y foto. Las fotos se comprimen para no depender de un plan de pago.
 - Gastos divididos entre varias personas, con reparto igual o importes manuales.
+- Grupos compartidos en modo Firebase: crea una libreta para piso, viaje o familia e invita por email.
 - Deudas directas: "me debe" y "le debo".
 - Pagos: "me ha pagado" y "le he pagado".
 - Estados: por pagar, parcial y pagado.
@@ -72,6 +73,8 @@ VITE_USE_FIREBASE_STORAGE=false
 ```
 
 Firestore ya esta creado en `eur3` y las reglas se han desplegado. Para que Auth funcione hay que activar en Firebase Console los proveedores `Email/Password` y `Google` en Authentication > Sign-in method, y autorizar `paco4gn.github.io` como dominio.
+
+Los grupos compartidos se guardan en `groups/{groupId}`. El acceso se concede por el email autenticado en `memberEmails`; cada grupo tiene sus propias personas y movimientos.
 
 Firebase Storage es opcional y no hace falta para esta app. Si algun dia quieres guardar fotos en Storage, Firebase exige actualizar el proyecto a plan de pago; entonces pon `VITE_USE_FIREBASE_STORAGE=true`, activa Cloud Storage en Firebase Console y despliega:
 
