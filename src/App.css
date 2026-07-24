@@ -1536,3 +1536,278 @@ button:focus-visible {
     width: 100%;
   }
 }
+
+@media (max-width: 760px) {
+  .app-shell {
+    padding: 18px 14px 118px;
+  }
+
+  .auth-shell {
+    padding: 18px 14px;
+  }
+
+  .auth-panel {
+    margin-top: 10px;
+    padding: 24px 18px 20px;
+  }
+
+  .topbar {
+    gap: 14px;
+    margin-bottom: 18px;
+    padding: 18px 16px 18px 18px;
+  }
+
+  .topbar h1 {
+    font-size: 30px;
+    line-height: 1.05;
+  }
+
+  .sync-pill {
+    line-height: 1.25;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .ledger-switcher {
+    gap: 10px;
+    margin: 0 -2px 18px;
+    padding: 10px;
+  }
+
+  .ledger-switcher button {
+    min-height: 46px;
+    padding: 0 14px;
+  }
+
+  .summary-grid {
+    gap: 14px;
+  }
+
+  .metric {
+    gap: 14px;
+    min-height: 92px;
+    padding: 18px;
+  }
+
+  .metric svg {
+    height: 42px;
+    width: 42px;
+  }
+
+  .metric span {
+    font-size: 14px;
+  }
+
+  .metric strong {
+    font-size: 26px;
+  }
+
+  .balance-rail {
+    gap: 10px;
+    margin: 14px 0 20px;
+    padding: 14px;
+  }
+
+  .rail-track {
+    height: 14px;
+  }
+
+  .tabs {
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    gap: 5px;
+    left: 10px;
+    margin: 0;
+    padding: 7px;
+    right: 10px;
+  }
+
+  .tabs button {
+    border-radius: 7px;
+    gap: 5px;
+    min-height: 52px;
+    padding: 5px 2px;
+  }
+
+  .tabs button svg {
+    height: 17px;
+    width: 17px;
+  }
+
+  .tabs span {
+    font-size: 10.5px;
+    line-height: 1.1;
+  }
+
+  .content-grid,
+  .side-column,
+  .person-list,
+  .record-list,
+  .insight-list,
+  .compact-records,
+  .form-grid {
+    gap: 14px;
+  }
+
+  .dashboard-grid {
+    gap: 18px;
+  }
+
+  .section-heading {
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-heading h2 {
+    font-size: 21px;
+  }
+
+  .panel,
+  .person-card,
+  .record-row,
+  .group-card {
+    padding: 18px;
+  }
+
+  .person-card,
+  .record-row,
+  .group-card {
+    gap: 14px;
+    min-height: auto;
+  }
+
+  .balance-card {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .balance-card > strong,
+  .balance-label,
+  .balance-card .row-actions {
+    grid-column: 1 / -1;
+  }
+
+  .balance-label {
+    text-align: left;
+  }
+
+  .record-row::before {
+    border-radius: 8px 8px 0 0;
+    height: 4px;
+    inset: 0 0 auto;
+    width: auto;
+  }
+
+  .record-title {
+    gap: 7px;
+  }
+
+  .record-row strong {
+    font-size: 20px;
+  }
+
+  .row-actions,
+  .button-row {
+    gap: 10px;
+  }
+
+  .row-actions .icon-button {
+    flex: 0 0 46px;
+  }
+
+  .row-actions .secondary-button,
+  .button-row .primary-button,
+  .button-row .secondary-button {
+    min-height: 46px;
+  }
+
+  .settle-button {
+    min-width: 0;
+  }
+
+  .toolbar {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .search-box svg {
+    top: 38px;
+  }
+
+  label {
+    gap: 8px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 46px;
+    padding: 11px 12px;
+  }
+
+  textarea {
+    min-height: 104px;
+  }
+
+  .segmented {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .segmented button {
+    min-height: 44px;
+  }
+
+  .split-box {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .check-grid {
+    gap: 10px;
+  }
+
+  .check-row {
+    gap: 12px;
+    grid-template-columns: 22px minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .check-row input[type='number'] {
+    grid-column: 1 / -1;
+  }
+
+  .avatar-editor {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .avatar-actions {
+    gap: 10px;
+    width: 100%;
+  }
+
+  .avatar-actions .secondary-button {
+    flex: 1;
+  }
+
+  .recovery-card,
+  .recovery-status {
+    padding: 14px;
+  }
+
+  .compact-record,
+  .insight-row {
+    min-height: 52px;
+    padding: 13px;
+  }
+
+  .empty-state {
+    padding: 28px 18px;
+  }
+
+  .toast {
+    max-width: calc(100% - 28px);
+    padding: 12px 14px;
+    text-align: center;
+    top: 14px;
+  }
+}
