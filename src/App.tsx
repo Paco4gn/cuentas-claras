@@ -2057,6 +2057,31 @@ function App() {
     setNotice(`Saldo de ${person.name} liquidado.`)
   }
 
+  function startQuickPayment(person: Person) {
+    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    if (balance === 0) return
+    setKind('payment')
+    setTitle(balance > 0 ? `Pago de ${person.name}` : `Pago a ${person.name}`)
+    setAmount(String(Math.abs(balance)))
+    setDate(today)
+    setDueDate('')
+    setPaidBy(me)
+    setParticipantIds([me])
+    setShares(emptyShares(people))
+    setPersonId(person.id)
+    setDebtDirection('owes_me')
+    setPaymentDirection(balance > 0 ? 'person_paid_me' : 'i_paid_person')
+    setStatus('por-pagar')
+    setRepeat('none')
+    setTagText('pago')
+    setNote(`Pago rapido para cuadrar ${person.name}`)
+    setAttachment(null)
+    setEditingRecordId(null)
+    setFormError('')
+    setNotice('Pago rapido preparado. Revisa y guarda.')
+    setTab('nuevo')
+  }
+
   function reminderHref(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     if (balance === 0) return ''
@@ -2605,6 +2630,7 @@ function App() {
                   reminderHref={reminderHref(person)}
                   onEdit={() => startEditPerson(person)}
                   onFavorite={() => toggleFavoritePerson(person)}
+                  onQuickPayment={() => startQuickPayment(person)}
                   onQr={() => openPersonQr(person)}
                   onSettle={() => settlePerson(person)}
                 />
@@ -3566,6 +3592,7 @@ function Metric({
 function PersonBalanceCard({
   balance,
   onFavorite,
+  onQuickPayment,
   onQr,
   onEdit,
   onSettle,
@@ -3574,6 +3601,7 @@ function PersonBalanceCard({
 }: {
   balance: number
   onFavorite: () => void
+  onQuickPayment: () => void
   onQr: () => void
   onEdit: () => void
   onSettle: () => void
@@ -3598,6 +3626,9 @@ function PersonBalanceCard({
         </button>
         <button aria-label="Editar persona" className="icon-button" type="button" title="Editar persona" onClick={onEdit}>
           <Edit3 aria-hidden="true" />
+        </button>
+        <button aria-label="Registrar pago rapido" className="icon-button" disabled={balance === 0} type="button" title="Registrar pago" onClick={onQuickPayment}>
+          <CircleDollarSign aria-hidden="true" />
         </button>
         {reminderHref ? (
           <a aria-label="Recordar pago" className="icon-button" href={reminderHref} rel="noreferrer" target="_blank" title="Recordar pago">

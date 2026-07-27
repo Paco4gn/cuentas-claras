@@ -104,6 +104,28 @@ test('settling a person marks open movements as paid and clears the balance', as
   assertNoErrors()
 })
 
+test('quick payment from a person balance creates an editable payment draft', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Quick Pay')
+  await addPerson(page, 'Rosa Quick')
+  await addDebt(page, 'Entrada concierto', '22')
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText(/22,00\s*€/)
+
+  await page.getByRole('button', { name: /Registrar pago rapido/i }).click()
+  await expect(page.getByText(/Pago rapido preparado/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Nuevo movimiento' })).toBeVisible()
+  await expect(page.getByPlaceholder('Cena, alquiler, bizum...')).toHaveValue('Pago de Rosa Quick')
+  await expect(page.getByLabel('Importe')).toHaveValue('22')
+  await expect(page.getByLabel('Etiquetas')).toHaveValue('pago')
+
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText(/0,00\s*€/)
+  await page.getByRole('button', { name: /Historial/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Entrada concierto' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Pago de Rosa Quick' })).toBeVisible()
+  assertNoErrors()
+})
+
 test('local split expenses, exports and import work', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Split')
