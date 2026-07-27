@@ -728,6 +728,7 @@ function App() {
   const [smartText, setSmartText] = useState('')
   const [smartError, setSmartError] = useState('')
   const [smartListening, setSmartListening] = useState(false)
+  const [balanceSearch, setBalanceSearch] = useState('')
   const [showZeroBalances, setShowZeroBalances] = useState(true)
   const [privacyHidden, setPrivacyHidden] = useState(false)
   const [pinInput, setPinInput] = useState('')
@@ -959,11 +960,15 @@ function App() {
     [balances, people],
   )
 
-  const visibleBalancePeople = useMemo(
-    () => showZeroBalances ? sortedPeople : sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009),
-    [balances, showZeroBalances, sortedPeople],
-  )
-  const hiddenZeroBalanceCount = sortedPeople.length - visibleBalancePeople.length
+  const visibleBalancePeople = useMemo(() => {
+    const normalizedSearch = normalizeText(balanceSearch)
+    return sortedPeople.filter((person) => {
+      if (!showZeroBalances && Math.abs(balances.get(person.id) ?? 0) <= 0.009) return false
+      if (!normalizedSearch) return true
+      return [person.name, person.phone, person.email, person.notes].some((value) => normalizeText(value).includes(normalizedSearch))
+    })
+  }, [balanceSearch, balances, showZeroBalances, sortedPeople])
+  const hiddenZeroBalanceCount = sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) <= 0.009).length
 
   const focusPeople = useMemo(() => sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009).slice(0, 3), [balances, sortedPeople])
 
@@ -2633,9 +2638,14 @@ function App() {
                 </button>
               </div>
             </div>
+            <label className="search-box balance-search">
+              Buscar en saldos
+              <Search aria-hidden="true" />
+              <input value={balanceSearch} onChange={(event) => setBalanceSearch(event.target.value)} placeholder="Nombre, telefono, email o nota" />
+            </label>
             <div className="person-list">
               {sortedPeople.length === 0 && <EmptyState text="Anade personas para empezar a cuadrar cuentas." />}
-              {sortedPeople.length > 0 && visibleBalancePeople.length === 0 && <EmptyState text="No hay saldos vivos. Activa mostrar a cero para ver todos los contactos." />}
+              {sortedPeople.length > 0 && visibleBalancePeople.length === 0 && <EmptyState text={balanceSearch.trim() ? 'No hay personas que coincidan con esa busqueda.' : 'No hay saldos vivos. Activa mostrar a cero para ver todos los contactos.'} />}
               {visibleBalancePeople.map((person) => (
                 <PersonBalanceCard
                   balance={balances.get(person.id) ?? 0}

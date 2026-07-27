@@ -769,6 +769,10 @@ button:focus-visible {
   padding-left: 38px;
 }
 
+.balance-search {
+  width: 100%;
+}
+
 .filter-box {
   min-width: 150px;
 }

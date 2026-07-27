@@ -138,11 +138,22 @@ test('balance list can hide and restore zero-balance people', async ({ page }) =
   await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
   await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toBeVisible()
 
+  await page.getByLabel('Buscar en saldos').fill('Cero')
+  await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toHaveCount(0)
+
+  await page.getByLabel('Buscar en saldos').fill('Deuda')
+  await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toHaveCount(0)
+
   await page.getByRole('button', { name: /Ocultar a cero/i }).click()
   await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
   await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Mostrar a cero \(1\)/i })).toBeVisible()
 
+  await page.getByLabel('Buscar en saldos').fill('Cero')
+  await expect(page.getByText(/No hay personas que coincidan/i)).toBeVisible()
+  await page.getByLabel('Buscar en saldos').fill('')
   await page.getByRole('button', { name: /Mostrar a cero/i }).click()
   await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toBeVisible()
   assertNoErrors()
