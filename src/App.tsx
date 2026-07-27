@@ -728,6 +728,7 @@ function App() {
   const [smartText, setSmartText] = useState('')
   const [smartError, setSmartError] = useState('')
   const [smartListening, setSmartListening] = useState(false)
+  const [showZeroBalances, setShowZeroBalances] = useState(true)
   const [privacyHidden, setPrivacyHidden] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [pinUnlock, setPinUnlock] = useState('')
@@ -957,6 +958,12 @@ function App() {
     () => [...people].sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || Math.abs(balances.get(b.id) ?? 0) - Math.abs(balances.get(a.id) ?? 0)),
     [balances, people],
   )
+
+  const visibleBalancePeople = useMemo(
+    () => showZeroBalances ? sortedPeople : sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009),
+    [balances, showZeroBalances, sortedPeople],
+  )
+  const hiddenZeroBalanceCount = sortedPeople.length - visibleBalancePeople.length
 
   const focusPeople = useMemo(() => sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009).slice(0, 3), [balances, sortedPeople])
 
@@ -2615,14 +2622,21 @@ function App() {
           <div className="content-grid main-column">
             <div className="section-heading">
               <h2>Saldos vivos</h2>
-              <button className="secondary-button" disabled={recordSaving} type="button" onClick={() => setTab('nuevo')}>
-                <Plus aria-hidden="true" />
-                Movimiento
-              </button>
+              <div className="button-row">
+                <button className="secondary-button" disabled={sortedPeople.length === 0} type="button" onClick={() => setShowZeroBalances((value) => !value)}>
+                  {showZeroBalances ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  {showZeroBalances ? 'Ocultar a cero' : `Mostrar a cero${hiddenZeroBalanceCount ? ` (${hiddenZeroBalanceCount})` : ''}`}
+                </button>
+                <button className="secondary-button" disabled={recordSaving} type="button" onClick={() => setTab('nuevo')}>
+                  <Plus aria-hidden="true" />
+                  Movimiento
+                </button>
+              </div>
             </div>
             <div className="person-list">
               {sortedPeople.length === 0 && <EmptyState text="Anade personas para empezar a cuadrar cuentas." />}
-              {sortedPeople.map((person) => (
+              {sortedPeople.length > 0 && visibleBalancePeople.length === 0 && <EmptyState text="No hay saldos vivos. Activa mostrar a cero para ver todos los contactos." />}
+              {visibleBalancePeople.map((person) => (
                 <PersonBalanceCard
                   balance={balances.get(person.id) ?? 0}
                   key={person.id}

@@ -126,6 +126,28 @@ test('quick payment from a person balance creates an editable payment draft', as
   assertNoErrors()
 })
 
+test('balance list can hide and restore zero-balance people', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Zero Filter')
+  await addPerson(page, 'Cero Oculto')
+  await addPerson(page, 'Deuda Visible')
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Dilo o escribelo').fill('Deuda Visible me debe 6 por cafe visible')
+  await page.getByRole('button', { name: /Guardar directo/i }).click()
+
+  await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toBeVisible()
+
+  await page.getByRole('button', { name: /Ocultar a cero/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Mostrar a cero \(1\)/i })).toBeVisible()
+
+  await page.getByRole('button', { name: /Mostrar a cero/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toBeVisible()
+  assertNoErrors()
+})
+
 test('local split expenses, exports and import work', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Split')
