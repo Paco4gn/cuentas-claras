@@ -360,7 +360,7 @@ function personNameFromText(text: string, normalized: string, people: Person[]) 
   return ''
 }
 
-function splitNamesFromSmartText(text: string, normalized: string, people: Person[]) {
+function splitNamesFromSmartText(text: string, people: Person[]) {
   const between = text.match(/\bentre\s+(.+?)(?:\s+(?:pagu[eé]|pag[oó]|por|vence|etiqueta|tag)|$)/i)?.[1]
   if (!between) return []
   const names = between
@@ -370,7 +370,8 @@ function splitNamesFromSmartText(text: string, normalized: string, people: Perso
     .map((name) => (normalizeText(name) === 'yo' || normalizeText(name) === 'mi' ? 'me' : name))
   return names.map((name) => {
     if (name === 'me') return name
-    return people.find((person) => normalizeText(person.name) === normalizeText(name) || normalized.includes(normalizeText(person.name)))?.name ?? name
+    const normalizedName = normalizeText(name)
+    return people.find((person) => normalizeText(person.name) === normalizedName || normalizeText(person.name).includes(normalizedName) || normalizedName.includes(normalizeText(person.name)))?.name ?? name
   })
 }
 
@@ -398,7 +399,7 @@ function parseSmartText(text: string, people: Person[]): SmartDraft | { error: s
   const tags = tagsFromSmartText(clean)
 
   if (/\b(divide|dividir|reparte|repartir|dividido|compartid[oa])\b/.test(normalized)) {
-    const personNames = splitNamesFromSmartText(clean, normalized, people)
+    const personNames = splitNamesFromSmartText(clean, people)
     const paidByName = /\bpagu[eé]\s+yo\b|\bpago\s+yo\b|\bpagado\s+por\s+mi\b|\bpagado\s+por\s+yo\b/.test(normalized)
       ? 'me'
       : personNameFromText(clean, normalized, people) || 'me'
@@ -1549,15 +1550,16 @@ function App() {
           if (name === 'me') participants.push(me)
           else participants.push((await ensurePersonByName(name)).id)
         }
-        if (!participants.includes(me)) participants.unshift(me)
+        const uniqueParticipants = [...new Set(participants)]
+        if (!uniqueParticipants.includes(me)) uniqueParticipants.unshift(me)
         const paidBy = draft.paidByName && draft.paidByName !== 'me' ? (await ensurePersonByName(draft.paidByName)).id : me
-        const baseCents = Math.round((draft.amount * 100) / participants.length)
+        const baseCents = Math.round((draft.amount * 100) / uniqueParticipants.length)
         let remainingCents = Math.round(draft.amount * 100)
         record.paidBy = paidBy
-        record.participantIds = participants
+        record.participantIds = uniqueParticipants
         record.shares = Object.fromEntries(
-          participants.map((id, index) => {
-            const cents = index === participants.length - 1 ? remainingCents : baseCents
+          uniqueParticipants.map((id, index) => {
+            const cents = index === uniqueParticipants.length - 1 ? remainingCents : baseCents
             remainingCents -= cents
             return [id, cents / 100]
           }),
