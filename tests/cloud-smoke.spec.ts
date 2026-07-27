@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 const env = Object.fromEntries(
@@ -89,6 +89,67 @@ async function cleanupCloudUser(email: string, password: string) {
 
 test.skip(!process.env.E2E_CLOUD, 'Set E2E_CLOUD=1 to run against Firebase production auth')
 
+function summaryAmount(page: Page, label: string) {
+  return page.getByRole('article').filter({ hasText: label }).getByRole('strong')
+}
+
+function personCard(page: Page, name: string) {
+  return page.getByRole('article').filter({ hasText: name })
+}
+
+async function createCloudAccount(page: Page, email: string, password: string, name: string) {
+  await page.goto(`${cloudUrl}?cloud-e2e=${Date.now()}`, { waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: /Crear cuenta/i }).click()
+  await page.getByRole('textbox', { name: 'Nombre' }).fill(name)
+  await page.getByRole('textbox', { name: 'Email' }).fill(email)
+  await page.getByLabel('Contrasena').fill(password)
+  await page.getByRole('button', { name: /Crear y entrar/i }).click()
+  await expect(page.getByText(/Firebase|Sincronizado/i)).toBeVisible({ timeout: 15_000 })
+}
+
+async function addCloudPerson(page: Page, name: string) {
+  await page.getByRole('button', { name: /Personas/i }).click()
+  await page.getByRole('textbox', { name: 'Nombre' }).fill(name)
+  await page.getByRole('button', { name: /Anadir persona/i }).click()
+  await expect(page.getByText(name)).toBeVisible()
+}
+
+async function openNewMovement(page: Page) {
+  const newButton = page.getByRole('button', { name: 'Nuevo', exact: true })
+  await expect(newButton).toBeEnabled({ timeout: 10_000 })
+  await newButton.click()
+}
+
+async function saveDebt(page: Page, title: string, amount: string, personName: string, direction: 'owes_me' | 'i_owe') {
+  await openNewMovement(page)
+  await page.getByRole('button', { name: /^Deuda$/i }).click()
+  await page.getByPlaceholder('Cena, alquiler, bizum...').fill(title)
+  await page.getByLabel('Importe').fill(amount)
+  await page.getByLabel('Persona').selectOption({ label: personName })
+  await page.getByLabel('Tipo').selectOption(direction)
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+}
+
+async function savePayment(page: Page, title: string, amount: string, personName: string, direction: 'person_paid_me' | 'i_paid_person', status = 'por-pagar') {
+  await openNewMovement(page)
+  await page.getByRole('button', { name: /^Pago$/i }).click()
+  await page.getByPlaceholder('Cena, alquiler, bizum...').fill(title)
+  await page.getByLabel('Importe').fill(amount)
+  await page.getByLabel('Persona').selectOption({ label: personName })
+  await page.getByLabel('Tipo').selectOption(direction)
+  await page.getByLabel('Estado').selectOption(status)
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+}
+
+async function saveEqualSplitPaidByMe(page: Page, title: string, amount: string) {
+  await openNewMovement(page)
+  await page.getByPlaceholder('Cena, alquiler, bizum...').fill(title)
+  await page.getByLabel('Importe').fill(amount)
+  await page.getByRole('button', { name: /Todos/i }).click()
+  await page.getByRole('button', { name: /Dividir igual/i }).click()
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+}
+
 test('production Firebase auth, balances, exports and shared groups work', async ({ browser }) => {
   test.setTimeout(180_000)
   const email = `cloud-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`
@@ -167,5 +228,65 @@ test('production Firebase auth, balances, exports and shared groups work', async
     await context.close().catch(() => undefined)
     await cleanupCloudUser(email, password)
     await cleanupCloudUser(invitedEmail, password)
+  }
+})
+
+test('production Firebase calculates crossed debts, paid records and split expenses', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const email = `cloud-cross-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`
+  const password = 'Prueba123'
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const consoleErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => consoleErrors.push(error.message))
+
+  try {
+    await createCloudAccount(page, email, password, 'Cloud Cruces')
+    await addCloudPerson(page, 'Ana Cruces')
+    await addCloudPerson(page, 'Luis Cruces')
+
+    await saveDebt(page, 'Ana me debe cena', '20', 'Ana Cruces', 'owes_me')
+    await expect(summaryAmount(page, 'Me deben')).toContainText('20,00')
+    await expect(summaryAmount(page, 'Debo')).toContainText('0,00')
+    await expect(summaryAmount(page, 'Saldo neto')).toContainText('20,00')
+    await expect(personCard(page, 'Ana Cruces')).toContainText('20,00')
+    await expect(personCard(page, 'Ana Cruces')).toContainText('me debe')
+
+    await saveDebt(page, 'Debo taxi a Luis', '12', 'Luis Cruces', 'i_owe')
+    await expect(summaryAmount(page, 'Me deben')).toContainText('20,00')
+    await expect(summaryAmount(page, 'Debo')).toContainText('12,00')
+    await expect(summaryAmount(page, 'Saldo neto')).toContainText('8,00')
+    await expect(personCard(page, 'Luis Cruces')).toContainText('-12,00')
+    await expect(personCard(page, 'Luis Cruces')).toContainText('le debo')
+
+    await savePayment(page, 'Pago cerrado que no cuenta', '5', 'Luis Cruces', 'i_paid_person', 'pagado')
+    await expect(summaryAmount(page, 'Me deben')).toContainText('20,00')
+    await expect(summaryAmount(page, 'Debo')).toContainText('12,00')
+    await expect(summaryAmount(page, 'Saldo neto')).toContainText('8,00')
+
+    await savePayment(page, 'Pago parcial a Luis', '5', 'Luis Cruces', 'i_paid_person')
+    await expect(summaryAmount(page, 'Me deben')).toContainText('20,00')
+    await expect(summaryAmount(page, 'Debo')).toContainText('7,00')
+    await expect(summaryAmount(page, 'Saldo neto')).toContainText('13,00')
+    await expect(personCard(page, 'Luis Cruces')).toContainText('-7,00')
+
+    await saveEqualSplitPaidByMe(page, 'Compra dividida entre tres', '30')
+    await expect(summaryAmount(page, 'Me deben')).toContainText('33,00')
+    await expect(summaryAmount(page, 'Debo')).toContainText('0,00')
+    await expect(summaryAmount(page, 'Saldo neto')).toContainText('33,00')
+    await expect(personCard(page, 'Ana Cruces')).toContainText('30,00')
+    await expect(personCard(page, 'Luis Cruces')).toContainText('3,00')
+    await expect(personCard(page, 'Luis Cruces')).toContainText('me debe')
+
+    await page.getByRole('button', { name: /Historial/i }).click()
+    await expect(page.getByRole('article').filter({ hasText: 'Pago cerrado que no cuenta' }).getByText('Pagado')).toBeVisible()
+    await expect(page.getByRole('article').filter({ hasText: 'Compra dividida entre tres' })).toBeVisible()
+    expect(consoleErrors).toEqual([])
+  } finally {
+    await context.close().catch(() => undefined)
+    await cleanupCloudUser(email, password)
   }
 })
