@@ -159,11 +159,13 @@ test('advanced tools handle favorites, filters, attachments and recurring record
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Tools')
   await addPerson(page, 'Marta Tools')
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
 
   await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
   await page.getByRole('button', { name: /^Deuda$/i }).click()
   await page.getByPlaceholder('Cena, alquiler, bizum...').fill('Suscripcion recurrente')
   await page.getByLabel('Importe').fill('9')
+  await page.getByLabel('Vence').fill(tomorrow)
   await page.getByLabel('Repetir').selectOption('monthly')
   await page.locator('input[type="file"][accept="image/*,application/pdf"]').setInputFiles({
     name: 'ticket.pdf',
@@ -183,10 +185,22 @@ test('advanced tools handle favorites, filters, attachments and recurring record
   await page.getByLabel('Tipo').selectOption('debt')
   await page.getByLabel('Persona').selectOption({ label: 'Marta Tools' })
   await expect(page.getByRole('article').filter({ hasText: 'Suscripcion recurrente' })).toBeVisible()
+
+  const filteredCsvDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: /CSV filtrado/i }).click()
+  expect((await filteredCsvDownload).suggestedFilename()).toMatch(/cuentas-claras-filtrado-.*\.csv/)
+
+  const calendarDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: /Calendario/i }).click()
+  expect((await calendarDownload).suggestedFilename()).toMatch(/cuentas-claras-vencimientos-.*\.ics/)
+
   await page.getByRole('button', { name: /Crear siguiente recurrente/i }).click()
   await expect(page.getByText(/Siguiente movimiento recurrente creado/i)).toBeVisible()
   await page.getByRole('button', { name: /Limpiar/i }).click()
   await expect(page.getByRole('article').filter({ hasText: 'Suscripcion recurrente' })).toHaveCount(2)
+  await page.getByRole('button', { name: /Pagar filtrados/i }).click()
+  await expect(page.getByText(/movimientos filtrados marcados como pagados/i)).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText(/0,00\s*€/)
   assertNoErrors()
 })
 

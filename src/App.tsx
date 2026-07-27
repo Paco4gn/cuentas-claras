@@ -574,6 +574,18 @@ function csvEscape(value: string | number) {
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
 }
 
+function icsEscape(value: string | number) {
+  return String(value)
+    .replaceAll('\\', '\\\\')
+    .replaceAll(';', '\\;')
+    .replaceAll(',', '\\,')
+    .replace(/\r?\n/g, '\\n')
+}
+
+function dateToIcs(date: string) {
+  return date.replaceAll('-', '')
+}
+
 function imageFileToAvatar(file: File) {
   return new Promise<string>((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -997,6 +1009,20 @@ function App() {
     const draft = parseSmartText(smartText, people)
     return 'error' in draft ? draft.error : smartDraftSummary(draft)
   }, [people, smartText])
+
+  const smartExamples = useMemo(() => {
+    const uniquePeople = [...people.filter((person) => person.favorite), ...people].filter(
+      (person, index, list) => list.findIndex((candidate) => candidate.id === person.id) === index,
+    )
+    const first = uniquePeople[0]?.name || 'Ana'
+    const second = uniquePeople[1]?.name || 'Luis'
+    return [
+      `${first} me debe 12 por cena vence manana etiqueta comida`,
+      `Le debo 8 a ${second} por taxi`,
+      `${first} me pago 5 por gasolina`,
+      `Divide 48 entre ${first}, ${second} y yo por compra pague yo`,
+    ]
+  }, [people])
 
   const tagStats = useMemo(() => {
     const totals = new Map<string, number>()
@@ -1868,12 +1894,50 @@ function App() {
     }
   }
 
+  function settlementText() {
+    if (settlementPlan.length === 0) return 'No hay pagos pendientes para cerrar en Cuentas claras.'
+    return settlementPlan
+      .map((item) => `${personName(item.from, people)} paga ${formatMoney(item.amount)} a ${personName(item.to, people)}`)
+      .join('\n')
+  }
+
+  async function copySettlementPlan() {
+    try {
+      await navigator.clipboard?.writeText(settlementText())
+      setNotice('Plan copiado.')
+    } catch {
+      setNotice('No se pudo copiar.')
+    }
+  }
+
+  async function shareSettlementPlan() {
+    const text = settlementText()
+    try {
+      if (navigator.share) await navigator.share({ title: 'Cierre de Cuentas claras', text })
+      else await navigator.clipboard?.writeText(text)
+      setNotice('Plan listo para compartir.')
+    } catch {
+      setNotice('No se pudo compartir el plan.')
+    }
+  }
+
   async function settleAllOpenRecords() {
     const openRecords = records.filter((record) => record.status !== 'pagado')
     if (openRecords.length === 0) return
     await Promise.all(openRecords.map((record) => persistRecord({ ...record, status: 'pagado' })))
     if (syncMode === 'local') await refreshData()
     setNotice('Cuenta cerrada: movimientos abiertos marcados como pagados.')
+  }
+
+  async function markFilteredAsPaid() {
+    const openFiltered = filteredRecords.filter((record) => record.status !== 'pagado')
+    if (openFiltered.length === 0) {
+      setNotice('No hay movimientos filtrados pendientes.')
+      return
+    }
+    await Promise.all(openFiltered.map((record) => persistRecord({ ...record, status: 'pagado' })))
+    if (syncMode === 'local') await refreshData()
+    setNotice(`${openFiltered.length} movimientos filtrados marcados como pagados.`)
   }
 
   async function toggleFavoritePerson(person: Person) {
@@ -2034,9 +2098,9 @@ function App() {
     downloadFile(`cuentas-claras-${today}.json`, payload, 'application/json')
   }
 
-  function exportCsv() {
+  function recordsToCsv(sourceRecords: LedgerRecord[]) {
     const header = ['fecha', 'vence', 'tipo', 'concepto', 'persona', 'importe', 'impacto', 'estado', 'repeticion', 'adjunto', 'etiquetas', 'nota']
-    const rows = records.map((record) => {
+    const rows = sourceRecords.map((record) => {
       const signed = [...computeSignedByPerson(record).values()].reduce((sum, value) => sum + value, 0)
       const names = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(' | ')
       return [
@@ -2054,7 +2118,51 @@ function App() {
         record.note,
       ].map(csvEscape)
     })
-    downloadFile(`cuentas-claras-${today}.csv`, [header, ...rows].map((row) => row.join(',')).join('\n'), 'text/csv')
+    return [header, ...rows].map((row) => row.join(',')).join('\n')
+  }
+
+  function exportCsv() {
+    downloadFile(`cuentas-claras-${today}.csv`, recordsToCsv(records), 'text/csv')
+  }
+
+  function exportFilteredCsv() {
+    downloadFile(`cuentas-claras-filtrado-${today}.csv`, recordsToCsv(filteredRecords), 'text/csv')
+  }
+
+  function exportCalendar() {
+    const openDueRecords = records.filter((record) => record.dueDate && record.status !== 'pagado')
+    const events = openDueRecords.map((record) => {
+      const names = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(', ') || 'Yo'
+      const signed = [...computeSignedByPerson(record).values()].reduce((sum, value) => sum + value, 0)
+      const description = [
+        `${kindLabels[record.kind]} - ${statusLabels[record.status]}`,
+        `Personas: ${names}`,
+        `Importe: ${formatMoney(record.amount)}`,
+        `Impacto vivo: ${formatMoney(signed)}`,
+        record.tags.length ? `Etiquetas: ${record.tags.join(', ')}` : '',
+        record.note,
+      ].filter(Boolean).join('\n')
+      return [
+        'BEGIN:VEVENT',
+        `UID:${record.id}@cuentas-claras`,
+        `DTSTAMP:${dateToIcs(today)}T000000Z`,
+        `DTSTART;VALUE=DATE:${dateToIcs(record.dueDate ?? record.date)}`,
+        `SUMMARY:${icsEscape(`Cuentas claras: ${record.title}`)}`,
+        `DESCRIPTION:${icsEscape(description)}`,
+        'END:VEVENT',
+      ].join('\r\n')
+    })
+    const content = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Cuentas Claras//ES',
+      'CALSCALE:GREGORIAN',
+      ...events,
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n')
+    downloadFile(`cuentas-claras-vencimientos-${today}.ics`, content, 'text/calendar')
+    setNotice(openDueRecords.length ? `${openDueRecords.length} vencimientos exportados al calendario.` : 'Calendario exportado sin vencimientos pendientes.')
   }
 
   async function importData(event: React.ChangeEvent<HTMLInputElement>) {
@@ -2544,9 +2652,13 @@ function App() {
                 ))}
               </div>
               <div className="button-row">
-                <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(settlementPlan.map((item) => `${personName(item.from, people)} paga ${formatMoney(item.amount)} a ${personName(item.to, people)}`).join('\n')).then(() => setNotice('Plan copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
+                <button className="secondary-button" type="button" onClick={copySettlementPlan}>
                   <Copy aria-hidden="true" />
                   Copiar plan
+                </button>
+                <button className="secondary-button" type="button" onClick={shareSettlementPlan}>
+                  <Link2 aria-hidden="true" />
+                  Compartir
                 </button>
                 <button className="secondary-button" disabled={settlementPlan.length === 0} type="button" onClick={settleAllOpenRecords}>
                   <CheckCircle2 aria-hidden="true" />
@@ -2659,6 +2771,10 @@ function App() {
                     Ver vencidos
                   </button>
                 )}
+                <button className="secondary-button full-button" onClick={exportCalendar} type="button">
+                  <CalendarClock aria-hidden="true" />
+                  Exportar calendario
+                </button>
               </div>
             </section>
 
@@ -3065,12 +3181,7 @@ function App() {
               />
             </label>
             <div className="template-row">
-              {[
-                'Ana me debe 12 por cena vence manana etiqueta comida',
-                'Le debo 8 a Luis por taxi',
-                'Luis me pago 5 por gasolina',
-                'Divide 48 entre Ana, Luis y yo por compra pague yo',
-              ].map((example) => (
+              {smartExamples.map((example) => (
                 <button className="template-chip" key={example} onClick={() => setSmartText(example)} type="button">
                   {example}
                 </button>
@@ -3333,6 +3444,18 @@ function App() {
             <button className="secondary-button" type="button" onClick={exportCsv}>
               <FileSpreadsheet aria-hidden="true" />
               CSV
+            </button>
+            <button className="secondary-button" type="button" onClick={exportFilteredCsv}>
+              <FileSpreadsheet aria-hidden="true" />
+              CSV filtrado
+            </button>
+            <button className="secondary-button" type="button" onClick={exportCalendar}>
+              <CalendarClock aria-hidden="true" />
+              Calendario
+            </button>
+            <button className="secondary-button" disabled={filteredRecords.every((record) => record.status === 'pagado')} type="button" onClick={markFilteredAsPaid}>
+              <CheckCircle2 aria-hidden="true" />
+              Pagar filtrados
             </button>
             <label className="secondary-button file-button">
               <Upload aria-hidden="true" />
