@@ -918,6 +918,95 @@ button:focus-visible {
   gap: 8px;
 }
 
+.quick-plan {
+  overflow: hidden;
+  position: relative;
+}
+
+.quick-plan::before {
+  content: '';
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: 4px;
+}
+
+.quick-plan.positive::before {
+  background: #0f766e;
+}
+
+.quick-plan.negative::before {
+  background: #be123c;
+}
+
+.quick-plan.warn::before {
+  background: #f59e0b;
+}
+
+.quick-plan.calm::before {
+  background: #2563eb;
+}
+
+.quick-plan > strong {
+  color: var(--text-strong);
+  display: block;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.quick-plan p {
+  color: var(--text-soft);
+  margin: 8px 0 12px;
+}
+
+.focus-list {
+  display: grid;
+  gap: 8px;
+}
+
+.focus-person {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 9px;
+  text-align: left;
+}
+
+.focus-person .avatar {
+  flex-basis: 42px;
+  height: 42px;
+  width: 42px;
+}
+
+.focus-person span {
+  display: grid;
+  min-width: 0;
+}
+
+.focus-person strong {
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-person small {
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.focus-person b {
+  font-size: 15px;
+  white-space: nowrap;
+}
+
 .insight-row,
 .compact-record {
   background: #ffffff;
@@ -1224,6 +1313,55 @@ button:focus-visible {
   background: linear-gradient(90deg, #f43f5e, #be123c);
 }
 
+.health-strip {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: -4px 0 16px;
+}
+
+.health-chip {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: 2px;
+  min-height: 58px;
+  padding: 10px 12px;
+}
+
+.health-chip span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.health-chip strong {
+  color: var(--text-strong);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.health-chip.positive {
+  border-color: rgba(20, 184, 166, 0.34);
+}
+
+.health-chip.negative {
+  border-color: rgba(244, 63, 94, 0.34);
+}
+
+.health-chip.warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.health-chip.ready {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
 .metric {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.96)),
@@ -1506,6 +1644,11 @@ button:focus-visible {
 
   .balance-rail div:last-child {
     text-align: left;
+  }
+
+  .health-strip {
+    gap: 8px;
+    grid-template-columns: 1fr;
   }
 
   .metric {

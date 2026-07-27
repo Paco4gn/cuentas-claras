@@ -722,6 +722,52 @@ function App() {
     [balances, people],
   )
 
+  const focusPeople = useMemo(() => sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009).slice(0, 3), [balances, sortedPeople])
+
+  const quickPlan = useMemo(() => {
+    const overdue = records
+      .filter((record) => record.dueDate && record.status !== 'pagado' && daysUntil(record.dueDate) < 0)
+      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))[0]
+    if (overdue) {
+      return {
+        tone: 'warn',
+        title: 'Hay vencimientos atrasados',
+        copy: `${overdue.title} ${dueLabel(overdue).toLowerCase()}. Conviene revisarlo antes de anadir mas movimientos.`,
+        action: 'vencidos',
+        button: 'Ver vencidos',
+      }
+    }
+
+    const toCollect = sortedPeople.find((person) => (balances.get(person.id) ?? 0) > 0)
+    const toPay = sortedPeople.find((person) => (balances.get(person.id) ?? 0) < 0)
+    if (toCollect && (!toPay || (balances.get(toCollect.id) ?? 0) >= Math.abs(balances.get(toPay.id) ?? 0))) {
+      return {
+        tone: 'positive',
+        title: `Cobrar a ${toCollect.name}`,
+        copy: `Es el saldo pendiente mas alto: ${formatMoney(balances.get(toCollect.id) ?? 0)} a tu favor.`,
+        action: toCollect.name,
+        button: 'Ver movimientos',
+      }
+    }
+    if (toPay) {
+      return {
+        tone: 'negative',
+        title: `Pagar a ${toPay.name}`,
+        copy: `Es tu deuda pendiente mas alta: ${formatMoney(Math.abs(balances.get(toPay.id) ?? 0))}.`,
+        action: toPay.name,
+        button: 'Ver movimientos',
+      }
+    }
+
+    return {
+      tone: 'calm',
+      title: records.length ? 'Todo esta cuadrado' : 'Listo para empezar',
+      copy: records.length ? 'No hay saldos vivos. El historial queda guardado para consultar o exportar.' : 'Anade personas y movimientos para que la app calcule quien debe a quien.',
+      action: '',
+      button: records.length ? 'Abrir movimientos' : 'Crear movimiento',
+    }
+  }, [balances, records, sortedPeople])
+
   const tagStats = useMemo(() => {
     const totals = new Map<string, number>()
     records.forEach((record) => {
@@ -740,6 +786,23 @@ function App() {
   const exposureTotal = summary.owedToMe + summary.owedByMe
   const owedToMePercent = exposureTotal ? Math.round((summary.owedToMe / exposureTotal) * 100) : 50
   const owedByMePercent = exposureTotal ? 100 - owedToMePercent : 50
+  const paidRate = records.length ? Math.round((summary.paidCount / records.length) * 100) : 0
+
+  function openQuickPlan() {
+    if (quickPlan.action === 'vencidos') {
+      setStatusFilter('vencidos')
+      setQuery('')
+      setTab('historial')
+      return
+    }
+    if (quickPlan.action) {
+      setStatusFilter('todos')
+      setQuery(quickPlan.action)
+      setTab('historial')
+      return
+    }
+    setTab(records.length ? 'historial' : 'nuevo')
+  }
 
   async function refreshData(ledgerId = activeLedgerId) {
     if (!ledgerId) return
@@ -1757,6 +1820,21 @@ function App() {
         </div>
       </section>
 
+      <section className="health-strip" aria-label="Salud de la cuenta">
+        <div className={summary.net >= 0 ? 'health-chip positive' : 'health-chip negative'}>
+          <span>Balance</span>
+          <strong>{summary.net >= 0 ? 'A favor' : 'Pendiente'}</strong>
+        </div>
+        <div className={dueStats.overdue ? 'health-chip warn' : 'health-chip ready'}>
+          <span>Vencidos</span>
+          <strong>{dueStats.overdue}</strong>
+        </div>
+        <div className="health-chip neutral">
+          <span>Liquidado</span>
+          <strong>{paidRate}%</strong>
+        </div>
+      </section>
+
       <nav className="tabs" aria-label="Secciones">
         {[
           ['resumen', BarChart3, 'Resumen'],
@@ -1822,6 +1900,51 @@ function App() {
               <div className="stat-row">
                 <span>Proximos 3 dias</span>
                 <strong>{dueStats.soon}</strong>
+              </div>
+            </section>
+
+            <section className={`panel quick-plan ${quickPlan.tone}`}>
+              <div className="section-heading compact">
+                <h2>Plan rapido</h2>
+                <CalendarClock aria-hidden="true" />
+              </div>
+              <strong>{quickPlan.title}</strong>
+              <p>{quickPlan.copy}</p>
+              <button className="secondary-button full-button" type="button" onClick={openQuickPlan}>
+                <Search aria-hidden="true" />
+                {quickPlan.button}
+              </button>
+            </section>
+
+            <section className="panel">
+              <div className="section-heading compact">
+                <h2>Personas clave</h2>
+                <Users aria-hidden="true" />
+              </div>
+              <div className="focus-list">
+                {focusPeople.length === 0 && <EmptyState text="No hay saldos pendientes por persona." />}
+                {focusPeople.map((person) => {
+                  const balance = balances.get(person.id) ?? 0
+                  return (
+                    <button
+                      className="focus-person"
+                      key={person.id}
+                      onClick={() => {
+                        setStatusFilter('todos')
+                        setQuery(person.name)
+                        setTab('historial')
+                      }}
+                      type="button"
+                    >
+                      <Avatar name={person.name} src={person.avatar} />
+                      <span>
+                        <strong>{person.name}</strong>
+                        <small>{balance > 0 ? 'Te debe' : 'Le debes'}</small>
+                      </span>
+                      <b className={balance > 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(balance)}</b>
+                    </button>
+                  )
+                })}
               </div>
             </section>
 
