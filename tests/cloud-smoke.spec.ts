@@ -202,9 +202,13 @@ test('production Firebase auth, balances, exports and shared groups work', async
 
     await page.getByRole('button', { name: /Grupos/i }).click()
     await page.getByLabel('Nombre del grupo').fill(groupName)
+    await page.getByLabel('Modo').selectOption('viaje')
+    await page.getByLabel('Presupuesto').fill('120')
     await page.getByLabel('Emails invitados').fill(invitedEmail)
     await page.getByRole('button', { name: /Crear grupo/i }).click()
     await expect(page.getByRole('heading', { name: groupName })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/Modo viaje/i)).toBeVisible()
+    await expect(page.getByText(/120,00/i)).toBeVisible()
 
     await page.getByRole('button', { name: /Salir/i }).click()
 

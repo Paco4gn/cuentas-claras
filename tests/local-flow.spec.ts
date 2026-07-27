@@ -190,6 +190,34 @@ test('advanced tools handle favorites, filters, attachments and recurring record
   assertNoErrors()
 })
 
+test('privacy mode, pin lock and QR collection tools work', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Privacy')
+  await addPerson(page, 'Nuria QR')
+  await addDebt(page, 'Cafe QR', '11')
+
+  await page.getByRole('button', { name: /Modo privacidad/i }).click()
+  await expect(page.locator('main.privacy-mode')).toBeVisible()
+  await page.getByRole('button', { name: /Modo privacidad/i }).click()
+  await expect(page.locator('main.privacy-mode')).toHaveCount(0)
+
+  await page.getByRole('button', { name: /QR de cobro/i }).first().click()
+  const qrDialog = page.getByRole('dialog', { name: /QR de cobro/i })
+  await expect(qrDialog).toBeVisible()
+  await expect(page.getByText(/Nuria QR debe 11,00/i)).toBeVisible()
+  await qrDialog.getByRole('button', { name: /^Cerrar$/i }).click()
+
+  await page.getByLabel('PIN de privacidad').fill('1234')
+  await page.getByRole('button', { name: /Guardar PIN/i }).click()
+  await expect(page.getByText(/PIN activado/i)).toBeVisible()
+  await page.getByRole('button', { name: /^Bloquear$/i }).click()
+  await expect(page.getByRole('button', { name: /Desbloquear/i })).toBeVisible()
+  await page.getByLabel('PIN').fill('1234')
+  await page.getByRole('button', { name: /Desbloquear/i }).click()
+  await expect(page.getByRole('heading', { name: 'Cuentas claras' })).toBeVisible()
+  assertNoErrors()
+})
+
 test('local recovery code can reset password', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   const email = await createLocalAccount(page, 'Paco Recovery')

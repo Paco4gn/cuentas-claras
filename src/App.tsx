@@ -33,16 +33,20 @@ import {
   Copy,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
   FileText,
   FolderKanban,
   KeyRound,
   Link2,
+  Lock,
   LogOut,
   MessageCircle,
   Mic,
   Paperclip,
   Plus,
+  QrCode,
   ReceiptText,
   Repeat2,
   Route,
@@ -133,6 +137,8 @@ interface SharedGroup {
   ownerEmail: string
   memberEmails: string[]
   mode?: 'normal' | 'viaje'
+  budget?: number
+  inviteCode?: string
   createdAt: string
   updatedAt: string
 }
@@ -675,7 +681,7 @@ function App() {
   const [records, setRecords] = useState<LedgerRecord[]>([])
   const [groups, setGroups] = useState<SharedGroup[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [groupForm, setGroupForm] = useState({ name: '', memberEmails: '', mode: 'normal' as 'normal' | 'viaje' })
+  const [groupForm, setGroupForm] = useState({ name: '', memberEmails: '', mode: 'normal' as 'normal' | 'viaje', budget: '' })
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('resumen')
   const [query, setQuery] = useState('')
@@ -710,6 +716,12 @@ function App() {
   const [smartText, setSmartText] = useState('')
   const [smartError, setSmartError] = useState('')
   const [smartListening, setSmartListening] = useState(false)
+  const [privacyHidden, setPrivacyHidden] = useState(false)
+  const [pinInput, setPinInput] = useState('')
+  const [pinUnlock, setPinUnlock] = useState('')
+  const [pinConfigured, setPinConfigured] = useState(false)
+  const [pinLocked, setPinLocked] = useState(false)
+  const [qrPayload, setQrPayload] = useState<{ title: string; text: string } | null>(null)
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
@@ -761,6 +773,10 @@ function App() {
   useEffect(() => {
     if (!currentUser) return
     setAccountHint(currentUser.recoveryHint ?? '')
+    setPinConfigured(Boolean(localStorage.getItem(`cuentas-claras-pin-${currentUser.id}`)))
+    setPinLocked(false)
+    setPinInput('')
+    setPinUnlock('')
     if (syncMode !== 'cloud' || !firestore || !currentUser.email) {
       setGroups([])
       setActiveGroupId(null)
@@ -1009,11 +1025,13 @@ function App() {
     return [...months.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6)
   }, [records])
   const activeTripMode = activeGroup?.mode === 'viaje'
+  const tripBudget = activeGroup?.budget ?? 0
   const firstPersonId = people[0]?.id ?? ''
   const shareTotal = participantIds.reduce((sum, id) => sum + Number(shares[id] ?? 0), 0)
   const splitDifference = Number((Number(amount || 0) - shareTotal).toFixed(2))
   const selectedPersonBalance = personId ? balances.get(personId) ?? 0 : 0
   const exposureTotal = summary.owedToMe + summary.owedByMe
+  const tripRemaining = tripBudget ? tripBudget - exposureTotal : 0
   const owedToMePercent = exposureTotal ? Math.round((summary.owedToMe / exposureTotal) * 100) : 50
   const owedByMePercent = exposureTotal ? 100 - owedToMePercent : 50
   const paidRate = records.length ? Math.round((summary.paidCount / records.length) * 100) : 0
@@ -1882,6 +1900,66 @@ function App() {
     setNotice('Notificaciones activadas.')
   }
 
+  async function savePin() {
+    if (!currentUser) return
+    const pin = pinInput.trim()
+    if (!/^\d{4,8}$/.test(pin)) {
+      setNotice('Usa un PIN de 4 a 8 numeros.')
+      return
+    }
+    const hash = await hashSha256(pin, currentUser.id)
+    localStorage.setItem(`cuentas-claras-pin-${currentUser.id}`, hash)
+    setPinConfigured(true)
+    setPinInput('')
+    setNotice('PIN activado.')
+  }
+
+  async function unlockPin() {
+    if (!currentUser) return
+    const stored = localStorage.getItem(`cuentas-claras-pin-${currentUser.id}`)
+    const hash = await hashSha256(pinUnlock.trim(), currentUser.id)
+    if (stored && stored === hash) {
+      setPinLocked(false)
+      setPinUnlock('')
+      setNotice('App desbloqueada.')
+      return
+    }
+    setNotice('PIN incorrecto.')
+  }
+
+  function disablePin() {
+    if (!currentUser) return
+    localStorage.removeItem(`cuentas-claras-pin-${currentUser.id}`)
+    setPinConfigured(false)
+    setPinInput('')
+    setPinUnlock('')
+    setPinLocked(false)
+    setNotice('PIN desactivado.')
+  }
+
+  function inviteText(group: SharedGroup) {
+    return `Te invito a "${group.name}" en Cuentas claras. Entra en https://paco4gn.github.io/cuentas-claras/ con este email incluido en el grupo: ${group.memberEmails.join(', ')}. Codigo: ${group.inviteCode ?? group.id.slice(0, 8)}`
+  }
+
+  async function copyInvite(group: SharedGroup) {
+    try {
+      await navigator.clipboard?.writeText(inviteText(group))
+      setNotice('Invitacion copiada.')
+    } catch {
+      setNotice('No se pudo copiar la invitacion.')
+    }
+  }
+
+  function openPersonQr(person: Person) {
+    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    const text = balance > 0
+      ? `${person.name} debe ${formatMoney(balance)} en Cuentas claras`
+      : balance < 0
+        ? `Debo ${formatMoney(Math.abs(balance))} a ${person.name} en Cuentas claras`
+        : `${person.name} esta a cero en Cuentas claras`
+    setQrPayload({ title: person.name, text })
+  }
+
   async function settlePerson(person: Person) {
     if (!currentUser || !activeLedgerId) return
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
@@ -2055,6 +2133,7 @@ function App() {
     }
     const existing = editingGroupId ? groups.find((group) => group.id === editingGroupId) : undefined
     const memberEmails = [...new Set([currentUser.email, ...emailsFromText(groupForm.memberEmails)])]
+    const budget = Number(groupForm.budget)
     const group: SharedGroup = {
       id: existing?.id ?? uid(),
       name,
@@ -2062,18 +2141,20 @@ function App() {
       ownerEmail: existing?.ownerEmail ?? currentUser.email,
       memberEmails,
       mode: groupForm.mode,
+      budget: budget > 0 ? budget : undefined,
+      inviteCode: existing?.inviteCode ?? uid().slice(0, 8).toUpperCase(),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
     await setDoc(groupDoc(group.id), cleanForFirestore(group), { merge: true })
-    setGroupForm({ name: '', memberEmails: '', mode: 'normal' })
+    setGroupForm({ name: '', memberEmails: '', mode: 'normal', budget: '' })
     setEditingGroupId(null)
     setActiveGroupId(group.id)
     setNotice(existing ? 'Grupo actualizado.' : 'Grupo creado.')
   }
 
   function startEditGroup(group: SharedGroup) {
-    setGroupForm({ name: group.name, memberEmails: group.memberEmails.filter((email) => email !== currentUser?.email).join(', '), mode: group.mode ?? 'normal' })
+    setGroupForm({ name: group.name, memberEmails: group.memberEmails.filter((email) => email !== currentUser?.email).join(', '), mode: group.mode ?? 'normal', budget: group.budget ? String(group.budget) : '' })
     setEditingGroupId(group.id)
     setTab('grupos')
   }
@@ -2251,8 +2332,36 @@ function App() {
     )
   }
 
+  if (currentUser && pinLocked) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel">
+          <div className="brand-mark">
+            <Lock aria-hidden="true" />
+          </div>
+          <h1>Cuentas claras</h1>
+          <p>Introduce tu PIN para desbloquear la app.</p>
+          <form className="form-grid" onSubmit={(event) => {
+            event.preventDefault()
+            void unlockPin()
+          }}>
+            <label>
+              PIN
+              <input value={pinUnlock} onChange={(event) => setPinUnlock(event.target.value)} inputMode="numeric" type="password" autoFocus />
+            </label>
+            <button className="primary-button" type="submit">
+              <Lock aria-hidden="true" />
+              Desbloquear
+            </button>
+          </form>
+          {notice && <p className="error-text">{notice}</p>}
+        </section>
+      </main>
+    )
+  }
+
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${privacyHidden ? 'privacy-mode' : ''}`}>
       {notice && <div className="toast">{notice}</div>}
       <header className="topbar">
         <div>
@@ -2260,9 +2369,19 @@ function App() {
           <h1>Cuentas claras</h1>
           <p className={`sync-pill ${syncMode}`}>{syncMessage} / {activeGroup ? activeGroup.name : 'Personal'}</p>
         </div>
-        <button aria-label="Salir" className="icon-button" type="button" title="Salir" onClick={signOut}>
-          <LogOut aria-hidden="true" />
-        </button>
+        <div className="topbar-actions">
+          <button aria-label="Modo privacidad" className="icon-button" type="button" title={privacyHidden ? 'Mostrar' : 'Privacidad'} onClick={() => setPrivacyHidden((value) => !value)}>
+            {privacyHidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+          </button>
+          {pinConfigured && (
+            <button aria-label="Bloquear app" className="icon-button" type="button" title="Bloquear app" onClick={() => setPinLocked(true)}>
+              <Lock aria-hidden="true" />
+            </button>
+          )}
+          <button aria-label="Salir" className="icon-button" type="button" title="Salir" onClick={signOut}>
+            <LogOut aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
       {syncMode === 'cloud' && (
@@ -2355,6 +2474,7 @@ function App() {
                   reminderHref={reminderHref(person)}
                   onEdit={() => startEditPerson(person)}
                   onFavorite={() => toggleFavoritePerson(person)}
+                  onQr={() => openPersonQr(person)}
                   onSettle={() => settlePerson(person)}
                 />
               ))}
@@ -2400,6 +2520,12 @@ function App() {
                   <span>Total abierto</span>
                   <strong>{formatMoney(exposureTotal)}</strong>
                 </div>
+                {tripBudget > 0 && (
+                  <div className="trip-total">
+                    <span>Presupuesto restante</span>
+                    <strong className={tripRemaining >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(tripRemaining)}</strong>
+                  </div>
+                )}
               </section>
             )}
 
@@ -2621,10 +2747,38 @@ function App() {
                   <Download aria-hidden="true" />
                   Copia JSON
                 </button>
+                <button className="secondary-button" type="button" onClick={() => setPrivacyHidden((value) => !value)}>
+                  {privacyHidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  Privacidad
+                </button>
+                {pinConfigured && (
+                  <button className="secondary-button" type="button" onClick={() => setPinLocked(true)}>
+                    <Lock aria-hidden="true" />
+                    Bloquear
+                  </button>
+                )}
                 <button className="secondary-button" type="button" onClick={refreshInstalledApp}>
                   <RotateCcw aria-hidden="true" />
                   Actualizar app
                 </button>
+              </div>
+              <div className="pin-box">
+                <label>
+                  PIN de privacidad
+                  <input value={pinInput} onChange={(event) => setPinInput(event.target.value)} inputMode="numeric" type="password" placeholder={pinConfigured ? 'Cambiar PIN' : 'Crear PIN'} />
+                </label>
+                <div className="button-row">
+                  <button className="secondary-button" type="button" onClick={savePin}>
+                    <Lock aria-hidden="true" />
+                    Guardar PIN
+                  </button>
+                  {pinConfigured && (
+                    <button className="secondary-button" type="button" onClick={disablePin}>
+                      <X aria-hidden="true" />
+                      Quitar PIN
+                    </button>
+                  )}
+                </div>
               </div>
               <form className="form-grid" onSubmit={saveRecoveryHint}>
                 <label>
@@ -2808,6 +2962,10 @@ function App() {
                   </select>
                 </label>
                 <label>
+                  Presupuesto
+                  <input value={groupForm.budget} onChange={(event) => setGroupForm({ ...groupForm, budget: event.target.value })} type="number" min="0" step="0.01" inputMode="decimal" placeholder="Opcional" />
+                </label>
+                <label>
                   Emails invitados
                   <textarea
                     value={groupForm.memberEmails}
@@ -2826,7 +2984,7 @@ function App() {
                       className="secondary-button"
                       onClick={() => {
                         setEditingGroupId(null)
-                        setGroupForm({ name: '', memberEmails: '', mode: 'normal' })
+                        setGroupForm({ name: '', memberEmails: '', mode: 'normal', budget: '' })
                       }}
                       type="button"
                     >
@@ -2855,12 +3013,16 @@ function App() {
               <article className={`group-card ${activeGroupId === group.id ? 'active' : ''}`} key={group.id}>
                 <div>
                   <h3>{group.name}</h3>
-                  <p>{group.mode === 'viaje' ? 'Modo viaje / ' : ''}{group.memberEmails.join(' / ')}</p>
+                  <p>{group.mode === 'viaje' ? 'Modo viaje / ' : ''}{group.budget ? `Presupuesto ${formatMoney(group.budget)} / ` : ''}{group.memberEmails.join(' / ')}</p>
                 </div>
                 <div className="row-actions">
                   <button className="secondary-button" onClick={() => selectLedger(group.id)} type="button">
                     <FolderKanban aria-hidden="true" />
                     Abrir
+                  </button>
+                  <button className="secondary-button" onClick={() => copyInvite(group)} type="button">
+                    <Link2 aria-hidden="true" />
+                    Invitar
                   </button>
                   {group.ownerId === currentUser.id ? (
                     <>
@@ -3196,6 +3358,29 @@ function App() {
           </div>
         </section>
       )}
+      {qrPayload && (
+        <div className="qr-modal" role="dialog" aria-modal="true" aria-label="QR de cobro">
+          <section className="panel qr-card">
+            <div className="section-heading compact">
+              <h2>QR de cobro</h2>
+              <QrCode aria-hidden="true" />
+            </div>
+            <img alt="" src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload.text)}`} />
+            <strong>{qrPayload.title}</strong>
+            <p>{qrPayload.text}</p>
+            <div className="button-row">
+              <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(qrPayload.text).then(() => setNotice('Texto QR copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
+                <Copy aria-hidden="true" />
+                Copiar
+              </button>
+              <button className="primary-button" type="button" onClick={() => setQrPayload(null)}>
+                <X aria-hidden="true" />
+                Cerrar
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }
@@ -3234,6 +3419,7 @@ function Metric({
 function PersonBalanceCard({
   balance,
   onFavorite,
+  onQr,
   onEdit,
   onSettle,
   person,
@@ -3241,6 +3427,7 @@ function PersonBalanceCard({
 }: {
   balance: number
   onFavorite: () => void
+  onQr: () => void
   onEdit: () => void
   onSettle: () => void
   person: Person
@@ -3258,6 +3445,9 @@ function PersonBalanceCard({
       <div className="row-actions">
         <button aria-label={person.favorite ? 'Quitar favorito' : 'Marcar favorito'} className={`icon-button ${person.favorite ? 'is-favorite' : ''}`} type="button" title={person.favorite ? 'Quitar favorito' : 'Favorito'} onClick={onFavorite}>
           <Star aria-hidden="true" />
+        </button>
+        <button aria-label="QR de cobro" className="icon-button" type="button" title="QR de cobro" onClick={onQr}>
+          <QrCode aria-hidden="true" />
         </button>
         <button aria-label="Editar persona" className="icon-button" type="button" title="Editar persona" onClick={onEdit}>
           <Edit3 aria-hidden="true" />

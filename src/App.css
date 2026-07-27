@@ -116,6 +116,12 @@ button svg,
   padding: 8px 0 18px;
 }
 
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .eyebrow {
   color: var(--text-soft);
   display: inline-block;
@@ -1115,6 +1121,68 @@ button:focus-visible {
 .icon-button.is-favorite {
   background: #fef3c7;
   color: #92400e;
+}
+
+.pin-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.privacy-mode .metric strong,
+.privacy-mode .balance-rail strong,
+.privacy-mode .health-chip strong,
+.privacy-mode .person-card > strong,
+.privacy-mode .record-row > strong,
+.privacy-mode .settlement-row strong,
+.privacy-mode .month-row strong,
+.privacy-mode .trip-total strong,
+.privacy-mode .focus-person b,
+.privacy-mode .compact-record strong,
+.privacy-mode .insight-row strong {
+  filter: blur(6px);
+  user-select: none;
+}
+
+.qr-modal {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.36);
+  display: grid;
+  inset: 0;
+  padding: 18px;
+  position: fixed;
+  z-index: 50;
+}
+
+.qr-card {
+  justify-self: center;
+  max-width: 340px;
+  width: 100%;
+}
+
+.qr-card img {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
+  height: 220px;
+  margin: 10px auto;
+  padding: 10px;
+  width: 220px;
+}
+
+.qr-card > strong {
+  color: var(--text-strong);
+  display: block;
+  font-size: 20px;
+}
+
+.qr-card p {
+  color: var(--text-soft);
+  margin: 8px 0 12px;
 }
 
 .insight-row,
