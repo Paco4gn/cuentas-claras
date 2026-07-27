@@ -308,7 +308,11 @@ function sortRecords(records: LedgerRecord[]) {
 }
 
 function shouldCountInOpenBalance(record: LedgerRecord) {
-  return record.kind === 'payment' || record.status !== 'pagado'
+  return record.status !== 'pagado'
+}
+
+function recordTouchesPerson(record: LedgerRecord, personId: string) {
+  return record.personId === personId || record.paidBy === personId || Boolean(record.participantIds?.includes(personId))
 }
 
 function daysUntil(date: string) {
@@ -1329,22 +1333,8 @@ function App() {
     if (!currentUser || !activeLedgerId) return
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     if (balance === 0) return
-    const record: LedgerRecord = {
-      id: uid(),
-      userId: activeLedgerId,
-      kind: 'payment',
-      title: balance > 0 ? `Pago recibido de ${person.name}` : `Pago enviado a ${person.name}`,
-      amount: Math.abs(balance),
-      currency: 'EUR',
-      date: today,
-      personId: person.id,
-      direction: balance > 0 ? 'person_paid_me' : 'i_paid_person',
-      tags: ['liquidacion'],
-      status: 'pagado',
-      note: 'Liquidacion rapida generada desde resumen.',
-      createdAt: new Date().toISOString(),
-    }
-    await persistRecord(record)
+    const openPersonRecords = records.filter((record) => record.status !== 'pagado' && recordTouchesPerson(record, person.id))
+    await Promise.all(openPersonRecords.map((record) => persistRecord({ ...record, status: 'pagado' })))
     if (syncMode === 'local') await refreshData()
     setNotice(`Saldo de ${person.name} liquidado.`)
   }

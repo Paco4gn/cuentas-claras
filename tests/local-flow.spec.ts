@@ -68,6 +68,42 @@ test('local account can track a debt, a partial payment and history', async ({ p
   assertNoErrors()
 })
 
+test('paid movements do not affect live balances', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Paid')
+  await addPerson(page, 'Rosa Paid')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByRole('button', { name: /^Pago$/i }).click()
+  await page.getByPlaceholder('Cena, alquiler, bizum...').fill('Granizada pagada')
+  await page.getByLabel('Importe').fill('5')
+  await page.getByLabel('Tipo').selectOption('i_paid_person')
+  await page.getByLabel('Estado').selectOption('pagado')
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+
+  await expect(page.getByRole('article').filter({ hasText: 'Debo' }).getByRole('strong')).toHaveText('0,00 €')
+  await expect(page.getByRole('article').filter({ hasText: 'Saldo neto' }).getByRole('strong')).toHaveText('0,00 €')
+  await expect(page.getByText('Rosa Paid').locator('..').locator('..')).toContainText('0,00 €')
+  assertNoErrors()
+})
+
+test('settling a person marks open movements as paid and clears the balance', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Settle')
+  await addPerson(page, 'Porro Settle')
+  await addDebt(page, 'Piscina pendiente', '8')
+  await expect(page.locator('body')).toContainText('8,00')
+
+  await page.getByRole('button', { name: /Liquidar/i }).click()
+  await expect(page.getByText(/Saldo de Porro Settle liquidado/i)).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText('0,00 €')
+  await page.getByRole('button', { name: /Historial/i }).click()
+  const settledRow = page.getByRole('article').filter({ hasText: 'Piscina pendiente' })
+  await expect(settledRow).toBeVisible()
+  await expect(settledRow.getByText('Pagado')).toBeVisible()
+  assertNoErrors()
+})
+
 test('local split expenses, exports and import work', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Split')
