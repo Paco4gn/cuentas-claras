@@ -143,13 +143,10 @@ async function savePayment(page: Page, title: string, amount: string, personName
   await page.getByRole('button', { name: /Guardar movimiento/i }).click()
 }
 
-async function saveEqualSplitPaidByMe(page: Page, title: string, amount: string) {
+async function saveSmart(page: Page, text: string) {
   await openNewMovement(page)
-  await page.getByPlaceholder('Cena, alquiler, bizum...').fill(title)
-  await page.getByLabel('Importe').fill(amount)
-  await page.getByRole('button', { name: /Todos/i }).click()
-  await page.getByRole('button', { name: /Dividir igual/i }).click()
-  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+  await page.getByLabel('Dilo o escribelo').fill(text)
+  await page.getByRole('button', { name: /Guardar directo/i }).click()
 }
 
 test('production Firebase auth, balances, exports and shared groups work', async ({ browser }) => {
@@ -250,7 +247,7 @@ test('production Firebase calculates crossed debts, paid records and split expen
     await addCloudPerson(page, 'Ana Cruces')
     await addCloudPerson(page, 'Luis Cruces')
 
-    await saveDebt(page, 'Ana me debe cena', '20', 'Ana Cruces', 'owes_me')
+    await saveSmart(page, 'Ana Cruces me debe 20 por cena vence manana etiqueta comida')
     await expect(summaryAmount(page, 'Me deben')).toContainText('20,00')
     await expect(summaryAmount(page, 'Debo')).toContainText('0,00')
     await expect(summaryAmount(page, 'Saldo neto')).toContainText('20,00')
@@ -275,7 +272,7 @@ test('production Firebase calculates crossed debts, paid records and split expen
     await expect(summaryAmount(page, 'Saldo neto')).toContainText('13,00')
     await expect(personCard(page, 'Luis Cruces')).toContainText('-7,00')
 
-    await saveEqualSplitPaidByMe(page, 'Compra dividida entre tres', '30')
+    await saveSmart(page, 'Divide 30 entre Ana Cruces, Luis Cruces y yo por compra dividida entre tres pague yo')
     await expect(summaryAmount(page, 'Me deben')).toContainText('33,00')
     await expect(summaryAmount(page, 'Debo')).toContainText('0,00')
     await expect(summaryAmount(page, 'Saldo neto')).toContainText('33,00')
@@ -285,7 +282,7 @@ test('production Firebase calculates crossed debts, paid records and split expen
 
     await page.getByRole('button', { name: /Historial/i }).click()
     await expect(page.getByRole('article').filter({ hasText: 'Pago cerrado que no cuenta' }).getByText('Pagado')).toBeVisible()
-    await expect(page.getByRole('article').filter({ hasText: 'Compra dividida entre tres' })).toBeVisible()
+    await expect(page.getByRole('article').filter({ hasText: 'compra dividida entre tres' })).toBeVisible()
     expect(consoleErrors).toEqual([])
   } finally {
     await context.close().catch(() => undefined)

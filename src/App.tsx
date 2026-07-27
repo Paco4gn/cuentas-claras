@@ -39,6 +39,7 @@ import {
   KeyRound,
   LogOut,
   MessageCircle,
+  Mic,
   Plus,
   ReceiptText,
   RotateCcw,
@@ -52,6 +53,7 @@ import {
   UserPlus,
   Users,
   WalletCards,
+  WandSparkles,
   X,
 } from 'lucide-react'
 import './App.css'
@@ -160,6 +162,20 @@ interface RecoveryKitPayload {
   name?: string
   recoveryCode?: string
   createdAt?: string
+}
+
+interface SmartDraft {
+  kind: RecordKind
+  title: string
+  amount: number
+  personName?: string
+  personNames?: string[]
+  direction?: DebtDirection | PaymentDirection
+  paidByName?: string | 'me'
+  status: RecordStatus
+  dueDate?: string
+  tags: string[]
+  note: string
 }
 
 class CuentaDb extends Dexie {
@@ -290,6 +306,125 @@ function tagsFromText(value: string) {
     .split(',')
     .map((tagValue) => tagValue.trim())
     .filter(Boolean)
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function addDaysToToday(days: number) {
+  const next = new Date(`${today}T00:00:00`)
+  next.setDate(next.getDate() + days)
+  return next.toISOString().slice(0, 10)
+}
+
+function nextWeekdayDate(weekday: number) {
+  const current = new Date(`${today}T00:00:00`)
+  const currentDay = current.getDay()
+  const diff = (weekday + 7 - currentDay) % 7 || 7
+  current.setDate(current.getDate() + diff)
+  return current.toISOString().slice(0, 10)
+}
+
+function dueDateFromSmartText(normalized: string) {
+  if (/\b(hoy)\b/.test(normalized)) return today
+  if (/\b(manana)\b/.test(normalized)) return addDaysToToday(1)
+  if (/\b(pasado manana)\b/.test(normalized)) return addDaysToToday(2)
+  const weekdays: Record<string, number> = {
+    domingo: 0,
+    lunes: 1,
+    martes: 2,
+    miercoles: 3,
+    jueves: 4,
+    viernes: 5,
+    sabado: 6,
+  }
+  const weekday = Object.entries(weekdays).find(([name]) => normalized.includes(name))
+  return weekday ? nextWeekdayDate(weekday[1]) : undefined
+}
+
+function personNameFromText(text: string, normalized: string, people: Person[]) {
+  const known = people.find((person) => normalized.includes(normalizeText(person.name)))
+  if (known) return known.name
+  const patterns = [
+    /\b(?:a|de)\s+([a-z0-9áéíóúñü\s]{2,40}?)(?:\s+(?:por|me|le|que|vence|etiqueta|tag|pagad|debe|pago|pague)|$)/i,
+    /^([a-z0-9áéíóúñü\s]{2,30}?)\s+(?:me|le|debe|pago|pague)/i,
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)?.[1]?.trim()
+    if (match) return match.replace(/\s+/g, ' ')
+  }
+  return ''
+}
+
+function splitNamesFromSmartText(text: string, normalized: string, people: Person[]) {
+  const between = text.match(/\bentre\s+(.+?)(?:\s+(?:pagu[eé]|pag[oó]|por|vence|etiqueta|tag)|$)/i)?.[1]
+  if (!between) return []
+  const names = between
+    .split(/\s*(?:,| y )\s*/i)
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .map((name) => (normalizeText(name) === 'yo' || normalizeText(name) === 'mi' ? 'me' : name))
+  return names.map((name) => {
+    if (name === 'me') return name
+    return people.find((person) => normalizeText(person.name) === normalizeText(name) || normalized.includes(normalizeText(person.name)))?.name ?? name
+  })
+}
+
+function conceptFromSmartText(text: string) {
+  const concept = text.match(/\bpor\s+(.+?)(?:\s+(?:vence|venc[eé]|etiqueta|etiquetas|tag|tags|pagad[oa])|$)/i)?.[1]?.trim()
+  return concept ? concept.replace(/\s+/g, ' ') : 'Movimiento rapido'
+}
+
+function tagsFromSmartText(text: string) {
+  const tags = text.match(/\b(?:etiqueta|etiquetas|tag|tags)\s+(.+)$/i)?.[1]
+  return tags ? tagsFromText(tags.replace(/\s+y\s+/gi, ',')) : []
+}
+
+function parseSmartText(text: string, people: Person[]): SmartDraft | { error: string } {
+  const clean = text.trim()
+  const normalized = normalizeText(clean)
+  const amountMatch = normalized.match(/(\d+(?:[,.]\d{1,2})?)\s*(?:€|eur|euros?)?/)
+  const amount = Number(amountMatch?.[1]?.replace(',', '.') ?? 0)
+  if (!clean) return { error: 'Dime algo como "Ana me debe 12 por cena".' }
+  if (!amount || amount <= 0) return { error: 'No he encontrado un importe valido.' }
+
+  const status: RecordStatus = /\b(pagado|pagada|cerrado|cerrada|liquidado|liquidada)\b/.test(normalized) ? 'pagado' : normalized.includes('parcial') ? 'parcial' : 'por-pagar'
+  const title = conceptFromSmartText(clean)
+  const dueDate = dueDateFromSmartText(normalized)
+  const tags = tagsFromSmartText(clean)
+
+  if (/\b(divide|dividir|reparte|repartir|dividido|compartid[oa])\b/.test(normalized)) {
+    const personNames = splitNamesFromSmartText(clean, normalized, people)
+    const paidByName = /\bpagu[eé]\s+yo\b|\bpago\s+yo\b|\bpagado\s+por\s+mi\b|\bpagado\s+por\s+yo\b/.test(normalized)
+      ? 'me'
+      : personNameFromText(clean, normalized, people) || 'me'
+    return { kind: 'split', title, amount, personNames, paidByName, status, dueDate, tags, note: clean }
+  }
+
+  if (/\b(me\s+(ha\s+)?pag[oó]|me\s+pago|me\s+pagaron)\b/.test(normalized)) {
+    return { kind: 'payment', title, amount, personName: personNameFromText(clean, normalized, people), direction: 'person_paid_me', status, dueDate, tags, note: clean }
+  }
+
+  if (/\b(le\s+(he\s+)?pagado|le\s+pagu[eé]|pagu[eé]\s+a|he\s+pagado\s+a)\b/.test(normalized)) {
+    return { kind: 'payment', title, amount, personName: personNameFromText(clean, normalized, people), direction: 'i_paid_person', status, dueDate, tags, note: clean }
+  }
+
+  if (/\b(le\s+debo|debo\s+a|yo\s+debo)\b/.test(normalized)) {
+    return { kind: 'debt', title, amount, personName: personNameFromText(clean, normalized, people), direction: 'i_owe', status, dueDate, tags, note: clean }
+  }
+
+  return { kind: 'debt', title, amount, personName: personNameFromText(clean, normalized, people), direction: 'owes_me', status, dueDate, tags, note: clean }
+}
+
+function smartDraftSummary(draft: SmartDraft) {
+  const base = `${kindLabels[draft.kind]} - ${formatMoney(draft.amount)} - ${draft.title}`
+  if (draft.kind === 'split') return `${base} - ${draft.personNames?.join(', ') || 'participantes'}`
+  const direction = draft.direction === 'i_owe' ? 'Le debo' : draft.direction === 'person_paid_me' ? 'Me ha pagado' : draft.direction === 'i_paid_person' ? 'Le he pagado' : 'Me debe'
+  return `${base} - ${draft.personName || 'persona nueva'} - ${direction}`
 }
 
 function emailsFromText(value: string) {
@@ -507,6 +642,9 @@ function App() {
   const [notice, setNotice] = useState('')
   const [recordSaving, setRecordSaving] = useState(false)
   const [personSaving, setPersonSaving] = useState(false)
+  const [smartText, setSmartText] = useState('')
+  const [smartError, setSmartError] = useState('')
+  const [smartListening, setSmartListening] = useState(false)
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
@@ -768,6 +906,12 @@ function App() {
       button: records.length ? 'Abrir movimientos' : 'Crear movimiento',
     }
   }, [balances, records, sortedPeople])
+
+  const smartPreview = useMemo(() => {
+    if (!smartText.trim()) return ''
+    const draft = parseSmartText(smartText, people)
+    return 'error' in draft ? draft.error : smartDraftSummary(draft)
+  }, [people, smartText])
 
   const tagStats = useMemo(() => {
     const totals = new Map<string, number>()
@@ -1306,6 +1450,169 @@ function App() {
     setNote('')
     setEditingRecordId(null)
     setFormError('')
+  }
+
+  async function ensurePersonByName(name: string) {
+    const cleanedName = name.trim()
+    const existing = people.find((person) => normalizeText(person.name) === normalizeText(cleanedName))
+    if (existing) return existing
+    const person: Person = {
+      id: uid(),
+      userId: activeLedgerId,
+      name: cleanedName,
+      phone: '',
+      email: '',
+      notes: 'Creada desde entrada inteligente',
+      avatar: '',
+      createdAt: new Date().toISOString(),
+    }
+    await persistPerson(person)
+    return person
+  }
+
+  function applySmartDraftToForm(draft: SmartDraft) {
+    setKind(draft.kind)
+    setTitle(draft.title)
+    setAmount(String(draft.amount))
+    setDate(today)
+    setDueDate(draft.dueDate ?? '')
+    setStatus(draft.status)
+    setTagText(draft.tags.join(', '))
+    setNote(draft.note)
+    if (draft.kind === 'split') {
+      const participantNames = draft.personNames?.length ? draft.personNames : ['me', ...people.map((person) => person.name)]
+      const ids = participantNames
+        .map((name) => (name === 'me' ? me : people.find((person) => normalizeText(person.name) === normalizeText(name))?.id))
+        .filter(Boolean) as ActorId[]
+      const nextParticipantIds = ids.includes(me) ? ids : [me, ...ids]
+      const share = Number((draft.amount / nextParticipantIds.length).toFixed(2))
+      setParticipantIds(nextParticipantIds)
+      setPaidBy(draft.paidByName === 'me' ? me : people.find((person) => normalizeText(person.name) === normalizeText(draft.paidByName ?? ''))?.id ?? me)
+      setShares(Object.fromEntries(nextParticipantIds.map((id, index) => [id, index === nextParticipantIds.length - 1 ? Number((draft.amount - share * (nextParticipantIds.length - 1)).toFixed(2)) : share])))
+    } else {
+      const selected = people.find((person) => normalizeText(person.name) === normalizeText(draft.personName ?? ''))
+      if (selected) setPersonId(selected.id)
+      if (draft.kind === 'debt') setDebtDirection(draft.direction === 'i_owe' ? 'i_owe' : 'owes_me')
+      if (draft.kind === 'payment') setPaymentDirection(draft.direction === 'i_paid_person' ? 'i_paid_person' : 'person_paid_me')
+    }
+    setFormError('')
+  }
+
+  function parsedSmartDraft() {
+    const draft = parseSmartText(smartText, people)
+    if ('error' in draft) {
+      setSmartError(draft.error)
+      return null
+    }
+    setSmartError('')
+    return draft
+  }
+
+  function fillFromSmartText() {
+    const draft = parsedSmartDraft()
+    if (!draft) return
+    applySmartDraftToForm(draft)
+    setNotice('Formulario rellenado desde la frase.')
+  }
+
+  async function saveFromSmartText() {
+    if (!currentUser || !activeLedgerId || recordSaving) return
+    const draft = parsedSmartDraft()
+    if (!draft) return
+    if (draft.kind !== 'split' && !draft.personName?.trim()) {
+      setSmartError('No he detectado la persona. Prueba: "Ana me debe 12 por cena".')
+      return
+    }
+
+    setRecordSaving(true)
+    try {
+      const createdAt = new Date().toISOString()
+      const record: LedgerRecord = {
+        id: uid(),
+        userId: activeLedgerId,
+        kind: draft.kind,
+        title: draft.title,
+        amount: draft.amount,
+        currency: 'EUR',
+        date: today,
+        tags: draft.tags,
+        status: draft.status,
+        dueDate: draft.dueDate,
+        note: draft.note,
+        createdAt,
+      }
+
+      if (draft.kind === 'split') {
+        const names = draft.personNames?.length ? draft.personNames : ['me', ...people.map((person) => person.name)]
+        const participants = [] as ActorId[]
+        for (const name of names) {
+          if (name === 'me') participants.push(me)
+          else participants.push((await ensurePersonByName(name)).id)
+        }
+        if (!participants.includes(me)) participants.unshift(me)
+        const paidBy = draft.paidByName && draft.paidByName !== 'me' ? (await ensurePersonByName(draft.paidByName)).id : me
+        const baseCents = Math.round((draft.amount * 100) / participants.length)
+        let remainingCents = Math.round(draft.amount * 100)
+        record.paidBy = paidBy
+        record.participantIds = participants
+        record.shares = Object.fromEntries(
+          participants.map((id, index) => {
+            const cents = index === participants.length - 1 ? remainingCents : baseCents
+            remainingCents -= cents
+            return [id, cents / 100]
+          }),
+        )
+      } else {
+        const person = await ensurePersonByName(draft.personName ?? '')
+        record.personId = person.id
+        record.direction = draft.direction
+      }
+
+      await persistRecord(record)
+      await refreshData()
+      resetRecordForm()
+      setSmartText('')
+      setNotice('Movimiento creado desde entrada inteligente.')
+      setTab('resumen')
+    } catch {
+      setSmartError('No se pudo guardar desde la frase. Revisa el texto e intentalo de nuevo.')
+    } finally {
+      setRecordSaving(false)
+    }
+  }
+
+  function startSmartListening() {
+    type SpeechRecognitionResultEvent = { results: ArrayLike<{ 0: { transcript: string } }> }
+    type SpeechRecognitionLike = {
+      lang: string
+      interimResults: boolean
+      onresult: ((event: SpeechRecognitionResultEvent) => void) | null
+      onerror: (() => void) | null
+      onend: (() => void) | null
+      start: () => void
+    }
+    const recognitionConstructor = (window as Window & {
+      SpeechRecognition?: new () => SpeechRecognitionLike
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike
+    }).SpeechRecognition ?? (window as Window & { webkitSpeechRecognition?: new () => SpeechRecognitionLike }).webkitSpeechRecognition
+    if (!recognitionConstructor) {
+      setSmartError('Tu navegador no deja usar microfono aqui. Puedes dictar con el teclado del iPhone o escribir la frase.')
+      return
+    }
+    const recognition = new recognitionConstructor()
+    recognition.lang = 'es-ES'
+    recognition.interimResults = false
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript
+      if (transcript) setSmartText(transcript)
+    }
+    recognition.onerror = () => {
+      setSmartError('No pude escuchar bien. Prueba otra vez o escribe la frase.')
+      setSmartListening(false)
+    }
+    recognition.onend = () => setSmartListening(false)
+    setSmartListening(true)
+    recognition.start()
   }
 
   function validateRecordForm() {
@@ -2333,6 +2640,52 @@ function App() {
 
       {tab === 'nuevo' && (
         <section className="content-grid">
+          <section className="panel smart-entry">
+            <div className="section-heading compact">
+              <h2>Entrada inteligente</h2>
+              <WandSparkles aria-hidden="true" />
+            </div>
+            <label>
+              Dilo o escribelo
+              <textarea
+                value={smartText}
+                onChange={(event) => {
+                  setSmartText(event.target.value)
+                  setSmartError('')
+                }}
+                placeholder="Ana me debe 12 por cena vence manana etiqueta comida"
+              />
+            </label>
+            <div className="template-row">
+              {[
+                'Ana me debe 12 por cena vence manana etiqueta comida',
+                'Le debo 8 a Luis por taxi',
+                'Luis me pago 5 por gasolina',
+                'Divide 48 entre Ana, Luis y yo por compra pague yo',
+              ].map((example) => (
+                <button className="template-chip" key={example} onClick={() => setSmartText(example)} type="button">
+                  {example}
+                </button>
+              ))}
+            </div>
+            {smartText.trim() && <p className={smartPreview.startsWith('No ') || smartPreview.startsWith('Dime ') ? 'error-text' : 'smart-preview'}>{smartPreview}</p>}
+            {smartError && <p className="error-text">{smartError}</p>}
+            <div className="button-row">
+              <button className="secondary-button" onClick={startSmartListening} type="button">
+                <Mic aria-hidden="true" />
+                {smartListening ? 'Escuchando...' : 'Hablar'}
+              </button>
+              <button className="secondary-button" onClick={fillFromSmartText} type="button">
+                <WandSparkles aria-hidden="true" />
+                Rellenar
+              </button>
+              <button className="primary-button" disabled={recordSaving} onClick={saveFromSmartText} type="button">
+                <CheckCircle2 aria-hidden="true" />
+                Guardar directo
+              </button>
+            </div>
+          </section>
+
           <form className="panel form-grid" onSubmit={submitRecord}>
             <div className="section-heading compact">
               <h2>{editingRecordId ? 'Editar movimiento' : 'Nuevo movimiento'}</h2>

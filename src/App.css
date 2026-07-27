@@ -1007,6 +1007,52 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+.smart-entry {
+  display: grid;
+  gap: 12px;
+}
+
+.smart-entry textarea {
+  min-height: 86px;
+}
+
+.template-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.template-chip {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.template-chip:hover,
+.focus-person:hover,
+.insight-row:hover,
+.compact-record:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.smart-preview {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  font-weight: 800;
+  margin: 0;
+  padding: 10px;
+}
+
 .insight-row,
 .compact-record {
   background: #ffffff;

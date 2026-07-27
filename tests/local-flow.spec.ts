@@ -130,6 +130,31 @@ test('local split expenses, exports and import work', async ({ page }) => {
   assertNoErrors()
 })
 
+test('smart entry creates direct and split movements from natural Spanish', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Smart')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Dilo o escribelo').fill('Carlos Smart me debe 14 por bocata vence manana etiqueta comida')
+  await expect(page.getByText(/Deuda directa/i)).toBeVisible()
+  await page.getByRole('button', { name: /Guardar directo/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText('14,00 €')
+  await expect(page.getByRole('article').filter({ hasText: 'Carlos Smart' }).filter({ hasText: 'me debe' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Dilo o escribelo').fill('Divide 30 entre Ana Smart, Luis Smart y yo por compra pague yo')
+  await expect(page.getByText(/Gasto dividido/i)).toBeVisible()
+  await page.getByRole('button', { name: /Guardar directo/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText('34,00 €')
+  await expect(page.getByRole('article').filter({ hasText: 'Ana Smart' }).filter({ hasText: 'me debe' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Luis Smart' }).filter({ hasText: 'me debe' })).toBeVisible()
+
+  await page.getByRole('button', { name: /Historial/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'bocata' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'compra' })).toBeVisible()
+  assertNoErrors()
+})
+
 test('local recovery code can reset password', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   const email = await createLocalAccount(page, 'Paco Recovery')
