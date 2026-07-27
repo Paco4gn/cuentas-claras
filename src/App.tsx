@@ -506,6 +506,7 @@ function App() {
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
   const [recordSaving, setRecordSaving] = useState(false)
+  const [personSaving, setPersonSaving] = useState(false)
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
@@ -1214,7 +1215,7 @@ function App() {
 
   async function submitPerson(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!currentUser || !activeLedgerId || !personForm.name.trim()) return
+    if (!currentUser || !activeLedgerId || !personForm.name.trim() || personSaving) return
     const previousPerson = people.find((person) => person.id === editingPersonId)
     const person: Person = {
       id: editingPersonId ?? uid(),
@@ -1227,15 +1228,22 @@ function App() {
       avatarStoragePath: previousPerson?.avatarStoragePath,
       createdAt: previousPerson?.createdAt ?? new Date().toISOString(),
     }
-    const personToSave = await personWithCloudAvatar(person)
-    await removeOldCloudAvatarIfNeeded(previousPerson, personToSave)
-    await persistPerson(personToSave)
-    setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
-    setEditingPersonId(null)
-    setPersonId(personToSave.id)
-    setParticipantIds((current) => [...new Set([...current, personToSave.id])])
-    if (syncMode === 'local') await refreshData()
-    setNotice(editingPersonId ? 'Persona actualizada.' : 'Persona anadida.')
+    setPersonSaving(true)
+    try {
+      const personToSave = await personWithCloudAvatar(person)
+      await removeOldCloudAvatarIfNeeded(previousPerson, personToSave)
+      await persistPerson(personToSave)
+      setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
+      setEditingPersonId(null)
+      setPersonId(personToSave.id)
+      setParticipantIds((current) => [...new Set([...current, personToSave.id])])
+      if (syncMode === 'local') await refreshData()
+      setNotice(editingPersonId ? 'Persona actualizada.' : 'Persona anadida.')
+    } catch {
+      setNotice('No se pudo guardar la persona. Intentalo de nuevo.')
+    } finally {
+      setPersonSaving(false)
+    }
   }
 
   function startEditPerson(person: Person) {
@@ -2193,9 +2201,9 @@ function App() {
               <textarea value={personForm.notes} onChange={(event) => setPersonForm({ ...personForm, notes: event.target.value })} />
             </label>
             <div className="button-row">
-              <button className="primary-button" type="submit">
+              <button className="primary-button" disabled={personSaving} type="submit">
                 {editingPersonId ? <Save aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                {editingPersonId ? 'Guardar cambios' : 'Anadir persona'}
+                {personSaving ? 'Guardando...' : editingPersonId ? 'Guardar cambios' : 'Anadir persona'}
               </button>
               {editingPersonId && (
                 <button className="secondary-button" onClick={resetPersonForm} type="button">

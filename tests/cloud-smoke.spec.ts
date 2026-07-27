@@ -109,9 +109,11 @@ async function createCloudAccount(page: Page, email: string, password: string, n
 
 async function addCloudPerson(page: Page, name: string) {
   await page.getByRole('button', { name: /Personas/i }).click()
+  await expect(page.getByRole('button', { name: /Anadir persona/i })).toBeEnabled({ timeout: 10_000 })
   await page.getByRole('textbox', { name: 'Nombre' }).fill(name)
   await page.getByRole('button', { name: /Anadir persona/i }).click()
-  await expect(page.getByText(name)).toBeVisible()
+  await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: /Anadir persona/i })).toBeEnabled({ timeout: 10_000 })
 }
 
 async function openNewMovement(page: Page) {
