@@ -2370,7 +2370,7 @@ function App() {
           <p className={`sync-pill ${syncMode}`}>{syncMessage} / {activeGroup ? activeGroup.name : 'Personal'}</p>
         </div>
         <div className="topbar-actions">
-          <button aria-label="Modo privacidad" className="icon-button" type="button" title={privacyHidden ? 'Mostrar' : 'Privacidad'} onClick={() => setPrivacyHidden((value) => !value)}>
+          <button aria-label="Privacidad visual" className="icon-button" type="button" title={privacyHidden ? 'Mostrar' : 'Privacidad'} onClick={() => setPrivacyHidden((value) => !value)}>
             {privacyHidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
           </button>
           {pinConfigured && (

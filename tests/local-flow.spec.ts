@@ -196,9 +196,9 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await addPerson(page, 'Nuria QR')
   await addDebt(page, 'Cafe QR', '11')
 
-  await page.getByRole('button', { name: /Modo privacidad/i }).click()
+  await page.getByRole('button', { name: /Privacidad visual/i }).click()
   await expect(page.locator('main.privacy-mode')).toBeVisible()
-  await page.getByRole('button', { name: /Modo privacidad/i }).click()
+  await page.getByRole('button', { name: /Privacidad visual/i }).click()
   await expect(page.locator('main.privacy-mode')).toHaveCount(0)
 
   await page.getByRole('button', { name: /QR de cobro/i }).first().click()
