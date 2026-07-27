@@ -1838,6 +1838,29 @@ function App() {
     setTab('nuevo')
   }
 
+  function duplicateRecordDraft(record: LedgerRecord) {
+    setKind(record.kind)
+    setTitle(record.title)
+    setAmount(String(record.amount))
+    setDate(today)
+    setDueDate('')
+    setPaidBy(record.paidBy ?? me)
+    setParticipantIds(record.participantIds ?? [me])
+    setShares({ ...emptyShares(people), ...(record.shares ?? {}) })
+    setPersonId(record.personId ?? firstPersonId)
+    setDebtDirection(record.direction === 'i_owe' ? 'i_owe' : 'owes_me')
+    setPaymentDirection(record.direction === 'i_paid_person' ? 'i_paid_person' : 'person_paid_me')
+    setStatus('por-pagar')
+    setRepeat(record.repeat ?? 'none')
+    setTagText(record.tags.join(', '))
+    setNote(record.note)
+    setAttachment(record.attachmentData ? { name: record.attachmentName ?? 'adjunto', data: record.attachmentData } : null)
+    setEditingRecordId(null)
+    setFormError('')
+    setNotice('Movimiento duplicado como borrador. Revisa y guarda.')
+    setTab('nuevo')
+  }
+
   async function handleAttachment(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
@@ -3472,6 +3495,7 @@ function App() {
                 record={record}
                 signed={computeSignedByPerson(record)}
                 onDelete={() => deleteRecord(record.id)}
+                onDuplicate={() => duplicateRecordDraft(record)}
                 onEdit={() => startEditRecord(record)}
                 onMarkPaid={() => markRecordStatus(record, record.status === 'pagado' ? 'por-pagar' : 'pagado')}
                 onNextRepeat={() => createNextRecurring(record)}
@@ -3616,6 +3640,7 @@ function RecordRow({
   record,
   signed,
   onDelete,
+  onDuplicate,
   onEdit,
   onMarkPaid,
   onNextRepeat,
@@ -3625,6 +3650,7 @@ function RecordRow({
   record: LedgerRecord
   signed: Map<string, number>
   onDelete: () => void
+  onDuplicate: () => void
   onEdit: () => void
   onMarkPaid: () => void
   onNextRepeat: () => void
@@ -3669,6 +3695,9 @@ function RecordRow({
       <div className="row-actions">
         <button aria-label="Editar movimiento" className="icon-button" onClick={onEdit} title="Editar movimiento" type="button">
           <Edit3 aria-hidden="true" />
+        </button>
+        <button aria-label="Duplicar movimiento" className="icon-button" onClick={onDuplicate} title="Duplicar movimiento" type="button">
+          <Copy aria-hidden="true" />
         </button>
         <button aria-label="Compartir movimiento" className="icon-button" onClick={onShare} title="Compartir" type="button">
           <Link2 aria-hidden="true" />

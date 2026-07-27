@@ -155,6 +155,28 @@ test('smart entry creates direct and split movements from natural Spanish', asyn
   assertNoErrors()
 })
 
+test('history can duplicate a movement as an editable draft', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Duplicate')
+  await addPerson(page, 'Marta Duplicate')
+  await addDebt(page, 'Cena duplicable', '17')
+
+  await page.getByRole('button', { name: /Historial/i }).click()
+  await page.getByRole('button', { name: /Duplicar movimiento/i }).click()
+  await expect(page.getByText(/Movimiento duplicado como borrador/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Nuevo movimiento' })).toBeVisible()
+  await expect(page.getByPlaceholder('Cena, alquiler, bizum...')).toHaveValue('Cena duplicable')
+  await expect(page.getByLabel('Importe')).toHaveValue('17')
+
+  await page.getByPlaceholder('Cena, alquiler, bizum...').fill('Cena duplicada guardada')
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText(/34,00\s*€/)
+  await page.getByRole('button', { name: /Historial/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Cena duplicable' })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Cena duplicada guardada' })).toBeVisible()
+  assertNoErrors()
+})
+
 test('advanced tools handle favorites, filters, attachments and recurring records', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Tools')
