@@ -37,16 +37,21 @@ import {
   FileText,
   FolderKanban,
   KeyRound,
+  Link2,
   LogOut,
   MessageCircle,
   Mic,
+  Paperclip,
   Plus,
   ReceiptText,
+  Repeat2,
+  Route,
   RotateCcw,
   Save,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Star,
   Tag,
   Trash2,
   Upload,
@@ -66,6 +71,8 @@ type DebtDirection = 'owes_me' | 'i_owe'
 type PaymentDirection = 'person_paid_me' | 'i_paid_person'
 type Tab = 'resumen' | 'nuevo' | 'personas' | 'historial' | 'grupos'
 type StatusFilter = 'todos' | RecordStatus | 'vencidos'
+type KindFilter = 'todos' | RecordKind
+type RepeatRule = 'none' | 'weekly' | 'monthly'
 type AuthMode = 'login' | 'register' | 'recover'
 type SyncMode = 'cloud' | 'local'
 
@@ -115,6 +122,7 @@ interface Person {
   notes: string
   avatar?: string
   avatarStoragePath?: string
+  favorite?: boolean
   createdAt: string
 }
 
@@ -124,6 +132,7 @@ interface SharedGroup {
   ownerId: string
   ownerEmail: string
   memberEmails: string[]
+  mode?: 'normal' | 'viaje'
   createdAt: string
   updatedAt: string
 }
@@ -144,6 +153,9 @@ interface LedgerRecord {
   tags: string[]
   status: RecordStatus
   dueDate?: string
+  repeat?: RepeatRule
+  attachmentName?: string
+  attachmentData?: string
   note: string
   createdAt: string
 }
@@ -451,6 +463,52 @@ function recordTouchesPerson(record: LedgerRecord, personId: string) {
   return record.personId === personId || record.paidBy === personId || Boolean(record.participantIds?.includes(personId))
 }
 
+function nextRepeatDate(date: string, repeat: RepeatRule) {
+  const next = new Date(`${date}T00:00:00`)
+  if (repeat === 'weekly') next.setDate(next.getDate() + 7)
+  if (repeat === 'monthly') next.setMonth(next.getMonth() + 1)
+  return next.toISOString().slice(0, 10)
+}
+
+function settlementPlanFromBalances(balances: Map<string, number>) {
+  const entries = [...balances.entries()]
+  const meBalance = -entries.reduce((sum, [, value]) => sum + value, 0)
+  const allEntries = [['me', meBalance] as [ActorId, number], ...entries]
+  const creditors = allEntries
+    .filter(([, value]) => value > 0.009)
+    .map(([id, value]) => ({ id, value: Number(value.toFixed(2)) }))
+    .sort((a, b) => b.value - a.value)
+  const debtors = allEntries
+    .filter(([, value]) => value < -0.009)
+    .map(([id, value]) => ({ id, value: Number(Math.abs(value).toFixed(2)) }))
+    .sort((a, b) => b.value - a.value)
+  const plan: Array<{ from: ActorId; to: ActorId; amount: number }> = []
+  let creditorIndex = 0
+  let debtorIndex = 0
+  while (creditorIndex < creditors.length && debtorIndex < debtors.length) {
+    const amount = Number(Math.min(creditors[creditorIndex].value, debtors[debtorIndex].value).toFixed(2))
+    if (amount > 0) plan.push({ from: debtors[debtorIndex].id, to: creditors[creditorIndex].id, amount })
+    creditors[creditorIndex].value = Number((creditors[creditorIndex].value - amount).toFixed(2))
+    debtors[debtorIndex].value = Number((debtors[debtorIndex].value - amount).toFixed(2))
+    if (creditors[creditorIndex].value <= 0.009) creditorIndex += 1
+    if (debtors[debtorIndex].value <= 0.009) debtorIndex += 1
+  }
+  return plan
+}
+
+function attachmentFileToData(file: File) {
+  return new Promise<{ name: string; data: string }>((resolve, reject) => {
+    if (file.size > 450_000) {
+      reject(new Error('too-large'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('read-error'))
+    reader.onload = () => resolve({ name: file.name, data: String(reader.result) })
+    reader.readAsDataURL(file)
+  })
+}
+
 function daysUntil(date: string) {
   const target = new Date(`${date}T00:00:00`).getTime()
   const current = new Date(`${today}T00:00:00`).getTime()
@@ -617,11 +675,15 @@ function App() {
   const [records, setRecords] = useState<LedgerRecord[]>([])
   const [groups, setGroups] = useState<SharedGroup[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [groupForm, setGroupForm] = useState({ name: '', memberEmails: '' })
+  const [groupForm, setGroupForm] = useState({ name: '', memberEmails: '', mode: 'normal' as 'normal' | 'viaje' })
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('resumen')
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
+  const [kindFilter, setKindFilter] = useState<KindFilter>('todos')
+  const [personFilter, setPersonFilter] = useState('todos')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '', avatar: '' })
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [kind, setKind] = useState<RecordKind>('split')
@@ -636,8 +698,10 @@ function App() {
   const [debtDirection, setDebtDirection] = useState<DebtDirection>('owes_me')
   const [paymentDirection, setPaymentDirection] = useState<PaymentDirection>('person_paid_me')
   const [status, setStatus] = useState<RecordStatus>('por-pagar')
+  const [repeat, setRepeat] = useState<RepeatRule>('none')
   const [tagText, setTagText] = useState('')
   const [note, setNote] = useState('')
+  const [attachment, setAttachment] = useState<{ name: string; data: string } | null>(null)
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null)
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
@@ -846,6 +910,10 @@ function App() {
     return records.filter((record) => {
       if (statusFilter === 'vencidos' && (!record.dueDate || record.status === 'pagado' || daysUntil(record.dueDate) >= 0)) return false
       if (statusFilter !== 'todos' && statusFilter !== 'vencidos' && record.status !== statusFilter) return false
+      if (kindFilter !== 'todos' && record.kind !== kindFilter) return false
+      if (personFilter !== 'todos' && !recordTouchesPerson(record, personFilter)) return false
+      if (dateFrom && record.date < dateFrom) return false
+      if (dateTo && record.date > dateTo) return false
       if (!normalized) return true
       const personNames = [...computeSignedByPerson(record).keys()]
         .map((id) => personName(id, people))
@@ -855,10 +923,10 @@ function App() {
         .toLowerCase()
         .includes(normalized)
     })
-  }, [people, query, records, statusFilter])
+  }, [dateFrom, dateTo, kindFilter, people, personFilter, query, records, statusFilter])
 
   const sortedPeople = useMemo(
-    () => [...people].sort((a, b) => Math.abs(balances.get(b.id) ?? 0) - Math.abs(balances.get(a.id) ?? 0)),
+    () => [...people].sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || Math.abs(balances.get(b.id) ?? 0) - Math.abs(balances.get(a.id) ?? 0)),
     [balances, people],
   )
 
@@ -925,6 +993,22 @@ function App() {
   }, [records])
 
   const recentRecords = records.slice(0, 4)
+  const settlementPlan = useMemo(() => settlementPlanFromBalances(balances), [balances])
+  const monthlyStats = useMemo(() => {
+    const months = new Map<string, { month: string; plus: number; minus: number; net: number }>()
+    records.forEach((record) => {
+      if (!shouldCountInOpenBalance(record)) return
+      const month = record.date.slice(0, 7)
+      const current = months.get(month) ?? { month, plus: 0, minus: 0, net: 0 }
+      const impact = recordImpact(record)
+      if (impact >= 0) current.plus += impact
+      else current.minus += Math.abs(impact)
+      current.net += impact
+      months.set(month, current)
+    })
+    return [...months.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6)
+  }, [records])
+  const activeTripMode = activeGroup?.mode === 'viaje'
   const firstPersonId = people[0]?.id ?? ''
   const shareTotal = participantIds.reduce((sum, id) => sum + Number(shares[id] ?? 0), 0)
   const splitDifference = Number((Number(amount || 0) - shareTotal).toFixed(2))
@@ -1447,8 +1531,10 @@ function App() {
     setDebtDirection('owes_me')
     setPaymentDirection('person_paid_me')
     setStatus('por-pagar')
+    setRepeat('none')
     setTagText('')
     setNote('')
+    setAttachment(null)
     setEditingRecordId(null)
     setFormError('')
   }
@@ -1652,7 +1738,10 @@ function App() {
       date,
       tags: tagsFromText(tagText),
       status,
+      repeat,
       dueDate: dueDate || undefined,
+      attachmentName: attachment?.name,
+      attachmentData: attachment?.data,
       note: note.trim(),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     }
@@ -1696,11 +1785,27 @@ function App() {
     setDebtDirection(record.direction === 'i_owe' ? 'i_owe' : 'owes_me')
     setPaymentDirection(record.direction === 'i_paid_person' ? 'i_paid_person' : 'person_paid_me')
     setStatus(record.status)
+    setRepeat(record.repeat ?? 'none')
     setTagText(record.tags.join(', '))
     setNote(record.note)
+    setAttachment(record.attachmentData ? { name: record.attachmentName ?? 'adjunto', data: record.attachmentData } : null)
     setEditingRecordId(record.id)
     setFormError('')
     setTab('nuevo')
+  }
+
+  async function handleAttachment(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const nextAttachment = await attachmentFileToData(file)
+      setAttachment(nextAttachment)
+      setNotice('Adjunto preparado.')
+    } catch {
+      setNotice('El adjunto es demasiado grande. Usa una imagen o PDF pequeno.')
+    } finally {
+      event.target.value = ''
+    }
   }
 
   async function deleteRecord(recordId: string) {
@@ -1715,6 +1820,66 @@ function App() {
     await persistRecord({ ...record, status: nextStatus })
     if (syncMode === 'local') await refreshData()
     setNotice(`Movimiento marcado como ${statusLabels[nextStatus].toLowerCase()}.`)
+  }
+
+  async function createNextRecurring(record: LedgerRecord) {
+    if (!currentUser || !activeLedgerId || !record.repeat || record.repeat === 'none') return
+    const nextDate = nextRepeatDate(record.date, record.repeat)
+    const nextRecord: LedgerRecord = {
+      ...record,
+      id: uid(),
+      date: nextDate,
+      dueDate: record.dueDate ? nextRepeatDate(record.dueDate, record.repeat) : undefined,
+      status: 'por-pagar',
+      createdAt: new Date().toISOString(),
+    }
+    await persistRecord(nextRecord)
+    if (syncMode === 'local') await refreshData()
+    setNotice('Siguiente movimiento recurrente creado.')
+  }
+
+  async function shareRecord(record: LedgerRecord) {
+    const peopleText = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(', ') || 'Yo'
+    const text = `${record.title} - ${formatMoney(record.amount)} - ${peopleText} - ${statusLabels[record.status]}`
+    try {
+      if (navigator.share) await navigator.share({ title: 'Cuentas claras', text })
+      else await navigator.clipboard?.writeText(text)
+      setNotice('Movimiento compartido.')
+    } catch {
+      setNotice('No se pudo compartir.')
+    }
+  }
+
+  async function settleAllOpenRecords() {
+    const openRecords = records.filter((record) => record.status !== 'pagado')
+    if (openRecords.length === 0) return
+    await Promise.all(openRecords.map((record) => persistRecord({ ...record, status: 'pagado' })))
+    if (syncMode === 'local') await refreshData()
+    setNotice('Cuenta cerrada: movimientos abiertos marcados como pagados.')
+  }
+
+  async function toggleFavoritePerson(person: Person) {
+    const nextPerson = { ...person, favorite: !person.favorite }
+    await persistPerson(nextPerson)
+    if (syncMode === 'local') await refreshData()
+    setNotice(nextPerson.favorite ? `${person.name} esta en favoritos.` : `${person.name} quitado de favoritos.`)
+  }
+
+  async function enableNotifications() {
+    if (!('Notification' in window)) {
+      setNotice('Este navegador no soporta notificaciones web.')
+      return
+    }
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      setNotice('Notificaciones no activadas.')
+      return
+    }
+    const due = dueRecords[0]
+    new Notification('Cuentas claras', {
+      body: due ? `${due.title}: ${dueLabel(due)}` : 'Notificaciones activadas para tus vencimientos.',
+    })
+    setNotice('Notificaciones activadas.')
   }
 
   async function settlePerson(person: Person) {
@@ -1792,7 +1957,7 @@ function App() {
   }
 
   function exportCsv() {
-    const header = ['fecha', 'vence', 'tipo', 'concepto', 'persona', 'importe', 'impacto', 'estado', 'etiquetas', 'nota']
+    const header = ['fecha', 'vence', 'tipo', 'concepto', 'persona', 'importe', 'impacto', 'estado', 'repeticion', 'adjunto', 'etiquetas', 'nota']
     const rows = records.map((record) => {
       const signed = [...computeSignedByPerson(record).values()].reduce((sum, value) => sum + value, 0)
       const names = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(' | ')
@@ -1805,6 +1970,8 @@ function App() {
         record.amount,
         signed,
         statusLabels[record.status],
+        record.repeat && record.repeat !== 'none' ? record.repeat : '',
+        record.attachmentName ?? '',
         record.tags.join(' | '),
         record.note,
       ].map(csvEscape)
@@ -1894,18 +2061,19 @@ function App() {
       ownerId: existing?.ownerId ?? currentUser.id,
       ownerEmail: existing?.ownerEmail ?? currentUser.email,
       memberEmails,
+      mode: groupForm.mode,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
     await setDoc(groupDoc(group.id), cleanForFirestore(group), { merge: true })
-    setGroupForm({ name: '', memberEmails: '' })
+    setGroupForm({ name: '', memberEmails: '', mode: 'normal' })
     setEditingGroupId(null)
     setActiveGroupId(group.id)
     setNotice(existing ? 'Grupo actualizado.' : 'Grupo creado.')
   }
 
   function startEditGroup(group: SharedGroup) {
-    setGroupForm({ name: group.name, memberEmails: group.memberEmails.filter((email) => email !== currentUser?.email).join(', ') })
+    setGroupForm({ name: group.name, memberEmails: group.memberEmails.filter((email) => email !== currentUser?.email).join(', '), mode: group.mode ?? 'normal' })
     setEditingGroupId(group.id)
     setTab('grupos')
   }
@@ -2186,6 +2354,7 @@ function App() {
                   person={person}
                   reminderHref={reminderHref(person)}
                   onEdit={() => startEditPerson(person)}
+                  onFavorite={() => toggleFavoritePerson(person)}
                   onSettle={() => settlePerson(person)}
                 />
               ))}
@@ -2218,6 +2387,74 @@ function App() {
                 <span>Proximos 3 dias</span>
                 <strong>{dueStats.soon}</strong>
               </div>
+            </section>
+
+            {activeTripMode && (
+              <section className="panel trip-panel">
+                <div className="section-heading compact">
+                  <h2>Modo viaje</h2>
+                  <Route aria-hidden="true" />
+                </div>
+                <p className="panel-copy">Usa gastos divididos y al final cierra con los pagos minimos.</p>
+                <div className="trip-total">
+                  <span>Total abierto</span>
+                  <strong>{formatMoney(exposureTotal)}</strong>
+                </div>
+              </section>
+            )}
+
+            <section className="panel">
+              <div className="section-heading compact">
+                <h2>Cierre optimo</h2>
+                <Route aria-hidden="true" />
+              </div>
+              <div className="settlement-list">
+                {settlementPlan.length === 0 && <EmptyState text="No hay pagos pendientes para cerrar." />}
+                {settlementPlan.map((item) => (
+                  <div className="settlement-row" key={`${item.from}-${item.to}-${item.amount}`}>
+                    <span>{personName(item.from, people)} paga a {personName(item.to, people)}</span>
+                    <strong>{formatMoney(item.amount)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="button-row">
+                <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(settlementPlan.map((item) => `${personName(item.from, people)} paga ${formatMoney(item.amount)} a ${personName(item.to, people)}`).join('\n')).then(() => setNotice('Plan copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
+                  <Copy aria-hidden="true" />
+                  Copiar plan
+                </button>
+                <button className="secondary-button" disabled={settlementPlan.length === 0} type="button" onClick={settleAllOpenRecords}>
+                  <CheckCircle2 aria-hidden="true" />
+                  Cerrar todo
+                </button>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="section-heading compact">
+                <h2>Meses</h2>
+                <BarChart3 aria-hidden="true" />
+              </div>
+              <div className="month-list">
+                {monthlyStats.length === 0 && <EmptyState text="No hay actividad mensual pendiente." />}
+                {monthlyStats.map((month) => (
+                  <div className="month-row" key={month.month}>
+                    <span>{month.month}</span>
+                    <strong className={month.net >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(month.net)}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="section-heading compact">
+                <h2>Avisos</h2>
+                <BellRing aria-hidden="true" />
+              </div>
+              <p className="panel-copy">Activa avisos del navegador para vencimientos cercanos.</p>
+              <button className="secondary-button full-button" type="button" onClick={enableNotifications}>
+                <BellRing aria-hidden="true" />
+                Activar notificaciones
+              </button>
             </section>
 
             <section className={`panel quick-plan ${quickPlan.tone}`}>
@@ -2564,6 +2801,13 @@ function App() {
                   <input value={groupForm.name} onChange={(event) => setGroupForm({ ...groupForm, name: event.target.value })} placeholder="Piso, viaje, familia..." />
                 </label>
                 <label>
+                  Modo
+                  <select value={groupForm.mode} onChange={(event) => setGroupForm({ ...groupForm, mode: event.target.value as 'normal' | 'viaje' })}>
+                    <option value="normal">Normal</option>
+                    <option value="viaje">Viaje</option>
+                  </select>
+                </label>
+                <label>
                   Emails invitados
                   <textarea
                     value={groupForm.memberEmails}
@@ -2582,7 +2826,7 @@ function App() {
                       className="secondary-button"
                       onClick={() => {
                         setEditingGroupId(null)
-                        setGroupForm({ name: '', memberEmails: '' })
+                        setGroupForm({ name: '', memberEmails: '', mode: 'normal' })
                       }}
                       type="button"
                     >
@@ -2611,7 +2855,7 @@ function App() {
               <article className={`group-card ${activeGroupId === group.id ? 'active' : ''}`} key={group.id}>
                 <div>
                   <h3>{group.name}</h3>
-                  <p>{group.memberEmails.join(' / ')}</p>
+                  <p>{group.mode === 'viaje' ? 'Modo viaje / ' : ''}{group.memberEmails.join(' / ')}</p>
                 </div>
                 <div className="row-actions">
                   <button className="secondary-button" onClick={() => selectLedger(group.id)} type="button">
@@ -2823,10 +3067,34 @@ function App() {
                 </select>
               </label>
               <label>
+                Repetir
+                <select value={repeat} onChange={(event) => setRepeat(event.target.value as RepeatRule)}>
+                  <option value="none">No repetir</option>
+                  <option value="weekly">Cada semana</option>
+                  <option value="monthly">Cada mes</option>
+                </select>
+              </label>
+            </div>
+            <div className="form-row two">
+              <label>
                 Etiquetas
                 <input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="casa, viaje, comida" />
               </label>
+              <label className="secondary-button file-button inline-file">
+                <Paperclip aria-hidden="true" />
+                {attachment ? attachment.name : 'Adjuntar justificante'}
+                <input accept="image/*,application/pdf" onChange={handleAttachment} type="file" />
+              </label>
             </div>
+            {attachment && (
+              <div className="attachment-preview">
+                <span>{attachment.name}</span>
+                <button className="secondary-button" type="button" onClick={() => setAttachment(null)}>
+                  <X aria-hidden="true" />
+                  Quitar
+                </button>
+              </div>
+            )}
             <label>
               Nota
               <textarea value={note} onChange={(event) => setNote(event.target.value)} />
@@ -2857,6 +3125,45 @@ function App() {
                 <option value="pagado">Pagado</option>
               </select>
             </label>
+            <label className="filter-box">
+              Tipo
+              <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as KindFilter)}>
+                <option value="todos">Todos</option>
+                <option value="split">Divididos</option>
+                <option value="debt">Deudas</option>
+                <option value="payment">Pagos</option>
+              </select>
+            </label>
+            <label className="filter-box">
+              Persona
+              <select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}>
+                <option value="todos">Todas</option>
+                {people.map((person) => (
+                  <option value={person.id} key={person.id}>
+                    {person.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-box">
+              Desde
+              <input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" />
+            </label>
+            <label className="filter-box">
+              Hasta
+              <input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" />
+            </label>
+            <button className="secondary-button" type="button" onClick={() => {
+              setQuery('')
+              setStatusFilter('todos')
+              setKindFilter('todos')
+              setPersonFilter('todos')
+              setDateFrom('')
+              setDateTo('')
+            }}>
+              <X aria-hidden="true" />
+              Limpiar
+            </button>
             <button className="secondary-button" type="button" onClick={exportData}>
               <Download aria-hidden="true" />
               JSON
@@ -2882,6 +3189,8 @@ function App() {
                 onDelete={() => deleteRecord(record.id)}
                 onEdit={() => startEditRecord(record)}
                 onMarkPaid={() => markRecordStatus(record, record.status === 'pagado' ? 'por-pagar' : 'pagado')}
+                onNextRepeat={() => createNextRecurring(record)}
+                onShare={() => shareRecord(record)}
               />
             ))}
           </div>
@@ -2924,12 +3233,14 @@ function Metric({
 
 function PersonBalanceCard({
   balance,
+  onFavorite,
   onEdit,
   onSettle,
   person,
   reminderHref,
 }: {
   balance: number
+  onFavorite: () => void
   onEdit: () => void
   onSettle: () => void
   person: Person
@@ -2945,6 +3256,9 @@ function PersonBalanceCard({
       <strong className={balance >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(balance)}</strong>
       <span className="balance-label">{balance > 0 ? 'me debe' : balance < 0 ? 'le debo' : 'a cero'}</span>
       <div className="row-actions">
+        <button aria-label={person.favorite ? 'Quitar favorito' : 'Marcar favorito'} className={`icon-button ${person.favorite ? 'is-favorite' : ''}`} type="button" title={person.favorite ? 'Quitar favorito' : 'Favorito'} onClick={onFavorite}>
+          <Star aria-hidden="true" />
+        </button>
         <button aria-label="Editar persona" className="icon-button" type="button" title="Editar persona" onClick={onEdit}>
           <Edit3 aria-hidden="true" />
         </button>
@@ -2991,6 +3305,8 @@ function RecordRow({
   onDelete,
   onEdit,
   onMarkPaid,
+  onNextRepeat,
+  onShare,
 }: {
   people: Person[]
   record: LedgerRecord
@@ -2998,6 +3314,8 @@ function RecordRow({
   onDelete: () => void
   onEdit: () => void
   onMarkPaid: () => void
+  onNextRepeat: () => void
+  onShare: () => void
 }) {
   const signedTotal = [...signed.values()].reduce((sum, value) => sum + value, 0)
   const personNames = [...signed.keys()].map((id) => personName(id, people)).join(', ')
@@ -3008,6 +3326,7 @@ function RecordRow({
           <h3>{record.title}</h3>
           <span className={`status ${record.status}`}>{statusLabels[record.status]}</span>
           {dueLabel(record) && <span className={`due-badge ${dueTone(record)}`}>{dueLabel(record)}</span>}
+          {record.repeat && record.repeat !== 'none' && <span className="due-badge neutral">{record.repeat === 'weekly' ? 'Semanal' : 'Mensual'}</span>}
         </div>
         <p>{[record.date, personNames || 'Yo', kindLabels[record.kind]].join(' / ')}</p>
         {record.note && (
@@ -3015,6 +3334,12 @@ function RecordRow({
             <FileText aria-hidden="true" />
             {record.note}
           </p>
+        )}
+        {record.attachmentData && (
+          <a className="attachment-link" href={record.attachmentData} download={record.attachmentName ?? 'justificante'} target="_blank" rel="noreferrer">
+            <Paperclip aria-hidden="true" />
+            {record.attachmentName ?? 'Justificante'}
+          </a>
         )}
         {record.tags.length > 0 && (
           <div className="tag-list">
@@ -3032,6 +3357,9 @@ function RecordRow({
         <button aria-label="Editar movimiento" className="icon-button" onClick={onEdit} title="Editar movimiento" type="button">
           <Edit3 aria-hidden="true" />
         </button>
+        <button aria-label="Compartir movimiento" className="icon-button" onClick={onShare} title="Compartir" type="button">
+          <Link2 aria-hidden="true" />
+        </button>
         <button
           aria-label={record.status === 'pagado' ? 'Reabrir movimiento' : 'Marcar pagado'}
           className="icon-button"
@@ -3041,6 +3369,11 @@ function RecordRow({
         >
           {record.status === 'pagado' ? <RotateCcw aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
         </button>
+        {record.repeat && record.repeat !== 'none' && (
+          <button aria-label="Crear siguiente recurrente" className="icon-button" onClick={onNextRepeat} title="Crear siguiente" type="button">
+            <Repeat2 aria-hidden="true" />
+          </button>
+        )}
         <button aria-label="Borrar movimiento" className="icon-button danger" onClick={onDelete} title="Borrar movimiento" type="button">
           <Trash2 aria-hidden="true" />
         </button>

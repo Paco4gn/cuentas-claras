@@ -155,6 +155,41 @@ test('smart entry creates direct and split movements from natural Spanish', asyn
   assertNoErrors()
 })
 
+test('advanced tools handle favorites, filters, attachments and recurring records', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Tools')
+  await addPerson(page, 'Marta Tools')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByRole('button', { name: /^Deuda$/i }).click()
+  await page.getByPlaceholder('Cena, alquiler, bizum...').fill('Suscripcion recurrente')
+  await page.getByLabel('Importe').fill('9')
+  await page.getByLabel('Repetir').selectOption('monthly')
+  await page.locator('input[type="file"][accept="image/*,application/pdf"]').setInputFiles({
+    name: 'ticket.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 prueba'),
+  })
+  await expect(page.locator('.attachment-preview').getByText('ticket.pdf')).toBeVisible()
+  await page.getByRole('button', { name: /Guardar movimiento/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText('9,00 €')
+
+  await page.getByRole('button', { name: /Marcar favorito/i }).click()
+  await expect(page.getByRole('button', { name: /Quitar favorito/i })).toBeVisible()
+
+  await page.getByRole('button', { name: /Historial/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Suscripcion recurrente' }).getByText('Mensual')).toBeVisible()
+  await expect(page.getByRole('link', { name: /ticket.pdf/i })).toBeVisible()
+  await page.getByLabel('Tipo').selectOption('debt')
+  await page.getByLabel('Persona').selectOption({ label: 'Marta Tools' })
+  await expect(page.getByRole('article').filter({ hasText: 'Suscripcion recurrente' })).toBeVisible()
+  await page.getByRole('button', { name: /Crear siguiente recurrente/i }).click()
+  await expect(page.getByText(/Siguiente movimiento recurrente creado/i)).toBeVisible()
+  await page.getByRole('button', { name: /Limpiar/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Suscripcion recurrente' })).toHaveCount(2)
+  assertNoErrors()
+})
+
 test('local recovery code can reset password', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   const email = await createLocalAccount(page, 'Paco Recovery')

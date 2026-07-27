@@ -1053,6 +1053,70 @@ button:focus-visible {
   padding: 10px;
 }
 
+.settlement-list,
+.month-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settlement-row,
+.month-row,
+.trip-total,
+.attachment-preview,
+.attachment-link {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 10px;
+}
+
+.settlement-row span,
+.month-row span,
+.trip-total span {
+  color: var(--text-soft);
+  min-width: 0;
+}
+
+.settlement-row strong,
+.month-row strong,
+.trip-total strong {
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+.trip-panel {
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.attachment-link {
+  color: #1d4ed8;
+  font-weight: 800;
+  justify-content: flex-start;
+  margin-top: 8px;
+  text-decoration: none;
+}
+
+.attachment-link svg {
+  height: 16px;
+  width: 16px;
+}
+
+.inline-file {
+  align-self: end;
+  justify-content: center;
+}
+
+.icon-button.is-favorite {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .insight-row,
 .compact-record {
   background: #ffffff;
