@@ -505,6 +505,7 @@ function App() {
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null)
   const [formError, setFormError] = useState('')
   const [notice, setNotice] = useState('')
+  const [recordSaving, setRecordSaving] = useState(false)
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
@@ -1252,7 +1253,7 @@ function App() {
 
   async function submitRecord(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!currentUser || !activeLedgerId) return
+    if (!currentUser || !activeLedgerId || recordSaving) return
     const validationError = validateRecordForm()
     if (validationError) {
       setFormError(validationError)
@@ -1288,11 +1289,18 @@ function App() {
       record.direction = kind === 'debt' ? debtDirection : paymentDirection
     }
 
-    await persistRecord(record)
-    if (syncMode === 'local') await refreshData()
-    setNotice(editingRecordId ? 'Movimiento actualizado.' : 'Movimiento guardado.')
-    resetRecordForm()
-    setTab('resumen')
+    setRecordSaving(true)
+    try {
+      await persistRecord(record)
+      if (syncMode === 'local') await refreshData()
+      setNotice(editingRecordId ? 'Movimiento actualizado.' : 'Movimiento guardado.')
+      resetRecordForm()
+      setTab('resumen')
+    } catch {
+      setFormError('No se pudo guardar el movimiento. Intentalo de nuevo.')
+    } finally {
+      setRecordSaving(false)
+    }
   }
 
   function startEditRecord(record: LedgerRecord) {
@@ -1757,7 +1765,7 @@ function App() {
           ['historial', ReceiptText, 'Historial'],
           ['grupos', FolderKanban, 'Grupos'],
         ].map(([id, Icon, label]) => (
-          <button key={id as string} className={tab === id ? 'active' : ''} onClick={() => setTab(id as Tab)} type="button">
+          <button disabled={recordSaving} key={id as string} className={tab === id ? 'active' : ''} onClick={() => setTab(id as Tab)} type="button">
             <Icon aria-hidden="true" />
             <span>{label as string}</span>
           </button>
@@ -1769,7 +1777,7 @@ function App() {
           <div className="content-grid main-column">
             <div className="section-heading">
               <h2>Saldos vivos</h2>
-              <button className="secondary-button" type="button" onClick={() => setTab('nuevo')}>
+              <button className="secondary-button" disabled={recordSaving} type="button" onClick={() => setTab('nuevo')}>
                 <Plus aria-hidden="true" />
                 Movimiento
               </button>
@@ -2338,9 +2346,9 @@ function App() {
               <textarea value={note} onChange={(event) => setNote(event.target.value)} />
             </label>
             {formError && <p className="error-text">{formError}</p>}
-            <button className="primary-button" type="submit">
+            <button className="primary-button" disabled={recordSaving} type="submit">
               {editingRecordId ? <Save aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
-              {editingRecordId ? 'Guardar cambios' : 'Guardar movimiento'}
+              {recordSaving ? 'Guardando...' : editingRecordId ? 'Guardar cambios' : 'Guardar movimiento'}
             </button>
           </form>
         </section>

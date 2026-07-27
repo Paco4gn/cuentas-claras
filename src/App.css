@@ -259,6 +259,11 @@ button svg,
   color: white;
 }
 
+.tabs button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .content-grid {
   display: grid;
   gap: 14px;
