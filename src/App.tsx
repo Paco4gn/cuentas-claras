@@ -188,6 +188,7 @@ interface PublicQrPayload {
   amount: number
   tone: 'collect' | 'pay' | 'settled'
   photo?: string
+  ownerName?: string
 }
 
 interface QrPayload extends PublicQrPayload {
@@ -604,7 +605,14 @@ function publicQrPayloadFromUnknown(value: unknown): PublicQrPayload | null {
   const parsed = value as Partial<PublicQrPayload>
   if (!parsed.title || !parsed.text || typeof parsed.amount !== 'number') return null
   const tone: PublicQrPayload['tone'] = parsed.tone === 'pay' || parsed.tone === 'settled' ? parsed.tone : 'collect'
-  return { title: parsed.title, text: parsed.text, amount: parsed.amount, tone, photo: typeof parsed.photo === 'string' ? parsed.photo : undefined }
+  return {
+    title: parsed.title,
+    text: parsed.text,
+    amount: parsed.amount,
+    tone,
+    photo: typeof parsed.photo === 'string' ? parsed.photo : undefined,
+    ownerName: typeof parsed.ownerName === 'string' ? parsed.ownerName : undefined,
+  }
 }
 
 function compactQrPayload(payload: PublicQrPayload): PublicQrPayload {
@@ -2120,9 +2128,9 @@ function App() {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     const ownerName = currentUser?.name || 'Cuentas claras'
     const text = balance > 0
-      ? `${person.name}, tienes ${formatMoney(balance)} pendiente con ${ownerName}. Cuando lo pagues, avisa para dejar la cuenta cuadrada.`
+      ? `${person.name}, tienes pendiente ${formatMoney(balance)} con ${ownerName}. Entra para verlo y avisame cuando este pagado.`
       : balance < 0
-        ? `${ownerName} tiene pendiente pagarte ${formatMoney(Math.abs(balance))}. Esta tarjeta sirve para recordar la cuenta.`
+        ? `${ownerName} tiene pendiente pagarte ${formatMoney(Math.abs(balance))}. Esta tarjeta deja la cuenta clara.`
         : `${person.name} esta a cero: no hay saldo pendiente en Cuentas claras.`
     const payload: PublicQrPayload = {
       title: person.name,
@@ -2130,6 +2138,7 @@ function App() {
       amount: Math.abs(balance),
       tone: balance > 0 ? 'collect' : balance < 0 ? 'pay' : 'settled',
       photo: qrPhotoForPerson(person),
+      ownerName,
     }
     setQrPayload({ ...payload, url: buildPublicQrUrl(payload) })
   }
@@ -3670,6 +3679,7 @@ function App() {
 
 function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
   const [copied, setCopied] = useState(false)
+  const ownerName = payload.ownerName || 'Cuentas claras'
   const title =
     payload.tone === 'collect'
       ? 'WANTED'
@@ -3678,7 +3688,7 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : 'CUENTA CUADRADA'
   const subtitle =
     payload.tone === 'collect'
-      ? 'Se busca para cuadrar cuentas'
+      ? 'Se busca'
       : payload.tone === 'pay'
         ? 'Pendiente a tu favor'
         : 'Sin saldo pendiente'
@@ -3696,15 +3706,22 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : 'Reward'
   const actionText =
     payload.tone === 'collect'
-      ? 'Paga y avisa para cerrar la cuenta.'
+      ? 'Salda la recompensa y avisa para cerrar el caso.'
       : payload.tone === 'pay'
-        ? 'Este importe aparece pendiente a tu favor.'
-        : 'No hay saldo pendiente ahora mismo.'
+        ? 'Caso abierto hasta que se confirme el pago.'
+        : 'Libre de cuentas pendientes.'
+  const posterText =
+    payload.tone === 'collect'
+      ? `${payload.title} debe ${formatMoney(payload.amount)} a ${ownerName}. Se busca aviso de pago.`
+      : payload.tone === 'pay'
+        ? `${ownerName} debe pagar ${formatMoney(payload.amount)} a ${payload.title}.`
+        : `${payload.title} esta libre de cuentas pendientes.`
+  const shareMessage = `${payload.text}\n${window.location.href}`
   const initial = payload.title.trim()[0]?.toUpperCase() || 'C'
 
   async function copyText() {
     try {
-      await navigator.clipboard?.writeText(payload.text)
+      await navigator.clipboard?.writeText(shareMessage)
       setCopied(true)
     } catch {
       setCopied(false)
@@ -3713,7 +3730,7 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
 
   async function shareText() {
     try {
-      if (navigator.share) await navigator.share({ title: 'Cuentas claras', text: payload.text })
+      if (navigator.share) await navigator.share({ title: `WANTED: ${payload.title}`, text: shareMessage })
       else await copyText()
     } catch {
       setCopied(false)
@@ -3736,7 +3753,7 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
             <strong>{formatMoney(payload.amount)}</strong>
           </div>
           <div className="wanted-copy">
-            <p className="wanted-message">{payload.text}</p>
+            <p className="wanted-message">{posterText}</p>
             <p className="wanted-notice">{actionText}</p>
           </div>
           <div className="wanted-scribbles" aria-hidden="true">
