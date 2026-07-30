@@ -3700,10 +3700,10 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : 'Cleared'
   const rewardLabel =
     payload.tone === 'collect'
-      ? 'Bounty'
+      ? 'Recompensa'
       : payload.tone === 'pay'
-        ? 'Amount'
-        : 'Reward'
+        ? 'Importe'
+        : 'Sin recompensa'
   const actionText =
     payload.tone === 'collect'
       ? 'Salda la recompensa y avisa para cerrar el caso.'
@@ -3712,10 +3712,14 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : 'Libre de cuentas pendientes.'
   const posterText =
     payload.tone === 'collect'
-      ? `${payload.title} debe ${formatMoney(payload.amount)} a ${ownerName}. Se busca aviso de pago.`
+      ? `${payload.title.toUpperCase()} adeuda ${formatMoney(payload.amount)} a ${ownerName.toUpperCase()}.`
       : payload.tone === 'pay'
-        ? `${ownerName} debe pagar ${formatMoney(payload.amount)} a ${payload.title}.`
-        : `${payload.title} esta libre de cuentas pendientes.`
+        ? `${ownerName.toUpperCase()} adeuda ${formatMoney(payload.amount)} a ${payload.title.toUpperCase()}.`
+        : `${payload.title.toUpperCase()} no tiene cuentas pendientes.`
+  const noticeText =
+    payload.tone === 'collect'
+      ? 'Ultimo aviso: paga y confirma para cerrar la cuenta.'
+      : actionText
   const shareMessage = `${payload.text}\n${window.location.href}`
   const initial = payload.title.trim()[0]?.toUpperCase() || 'C'
 
@@ -3754,7 +3758,7 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
           </div>
           <div className="wanted-copy">
             <p className="wanted-message">{posterText}</p>
-            <p className="wanted-notice">{actionText}</p>
+            <p className="wanted-notice">{noticeText}</p>
           </div>
           <div className="wanted-scribbles" aria-hidden="true">
             <span />

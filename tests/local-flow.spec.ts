@@ -311,7 +311,7 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await publicQrPage.goto(publicQrHref!)
   await expect(publicQrPage.getByRole('heading', { name: /WANTED/i })).toBeVisible()
   await expect(publicQrPage.getByRole('heading', { name: /Kiko/i })).toBeVisible()
-  await expect(publicQrPage.getByText(/Kiko debe 11,00/i)).toBeVisible()
+  await expect(publicQrPage.getByText(/KIKO adeuda 11,00/i)).toBeVisible()
   await expect(publicQrPage.locator('.wanted-reward strong')).toHaveText(/11,00\s*€/)
   await expect(publicQrPage.locator('.wanted-photo img')).toBeVisible()
   await publicQrPage.close()
