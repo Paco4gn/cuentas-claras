@@ -1201,8 +1201,9 @@ button:focus-visible {
 .public-qr-shell {
   align-items: center;
   background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(190, 18, 60, 0.08)),
-    #f8fafc;
+    radial-gradient(circle at 18% 12%, rgba(120, 53, 15, 0.16), transparent 28%),
+    radial-gradient(circle at 82% 88%, rgba(69, 26, 3, 0.14), transparent 30%),
+    #2d241d;
   display: grid;
   min-height: 100svh;
   padding: 24px;
@@ -1210,15 +1211,19 @@ button:focus-visible {
 
 .public-qr-card {
   background:
-    linear-gradient(180deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.98)),
-    radial-gradient(circle at top right, rgba(120, 53, 15, 0.14), transparent 34%);
-  border: 2px solid #78350f;
-  border-radius: 12px;
-  box-shadow: 0 24px 70px rgba(69, 26, 3, 0.22);
+    linear-gradient(90deg, rgba(120, 53, 15, 0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(120, 53, 15, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at 20% 20%, rgba(146, 64, 14, 0.18), transparent 24%),
+    radial-gradient(circle at 85% 80%, rgba(69, 26, 3, 0.14), transparent 22%),
+    linear-gradient(180deg, #f6dfae, #e7bf7f);
+  background-size: 18px 18px, 18px 18px, auto, auto, auto;
+  border: 4px solid #211407;
+  border-radius: 4px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
   color: #2f1f12;
   justify-self: center;
-  max-width: 430px;
-  padding: 28px;
+  max-width: 560px;
+  padding: 22px;
   width: 100%;
 }
 
@@ -1235,64 +1240,73 @@ button:focus-visible {
 }
 
 .wanted-frame {
-  border: 2px solid #78350f;
-  border-radius: 10px;
-  padding: 14px;
+  border: 3px solid #211407;
+  border-radius: 2px;
+  padding: 14px 14px 18px;
   text-align: center;
 }
 
-.wanted-frame > span,
+.wanted-overline,
+.wanted-deadline,
 .wanted-label {
-  color: #78350f;
+  color: #211407;
   display: block;
-  font-size: 12px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 14px;
   font-weight: 900;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .wanted-frame h1 {
   color: #1c1208;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 46px;
+  font-size: 78px;
   letter-spacing: 0;
-  line-height: 0.95;
-  margin: 8px 0 14px;
+  line-height: 0.82;
+  margin: 10px 0 18px;
 }
 
 .wanted-frame h2 {
   color: #1c1208;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 30px;
+  font-size: 42px;
   letter-spacing: 0;
-  line-height: 1.05;
-  margin: 14px 0 0;
+  line-height: 0.96;
+  margin: 16px 0 8px;
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 
+.wanted-deadline {
+  border-top: 2px solid #211407;
+  margin: 12px 0 0;
+  padding-top: 12px;
+}
+
 .wanted-photo {
-  aspect-ratio: 1;
-  background: #fef3c7;
-  border: 2px solid #78350f;
-  border-radius: 8px;
+  aspect-ratio: 4 / 3;
+  background: #f8e7b6;
+  border: 3px solid #211407;
+  border-radius: 2px;
   display: grid;
   margin: 0 auto;
   overflow: hidden;
   place-items: center;
-  width: min(260px, 100%);
+  width: 100%;
 }
 
 .wanted-photo img {
   height: 100%;
   object-fit: cover;
   width: 100%;
+  filter: saturate(0.88) contrast(1.08) sepia(0.16);
 }
 
 .wanted-photo strong {
   color: #78350f;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 92px;
+  font-size: 150px;
 }
 
 .public-qr-card p {
@@ -1308,11 +1322,11 @@ button:focus-visible {
 .public-amount {
   color: #1c1208;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 44px;
+  font-size: 56px;
   font-weight: 900;
   letter-spacing: 0;
   line-height: 1;
-  margin: 8px 0 18px;
+  margin: 8px 0 0;
   text-align: center;
 }
 
@@ -1333,6 +1347,28 @@ button:focus-visible {
 
 .public-app-link {
   margin: 16px 0 0;
+}
+
+@media (max-width: 560px) {
+  .public-qr-shell {
+    padding: 14px;
+  }
+
+  .public-qr-card {
+    padding: 14px;
+  }
+
+  .wanted-frame h1 {
+    font-size: 54px;
+  }
+
+  .wanted-frame h2 {
+    font-size: 30px;
+  }
+
+  .public-amount {
+    font-size: 42px;
+  }
 }
 
 .insight-row,

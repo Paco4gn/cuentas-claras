@@ -225,6 +225,7 @@ class CuentaDb extends Dexie {
 
 const db = new CuentaDb()
 const sessionKey = 'cuentas-claras-session'
+const publicQrStoragePrefix = 'cuentas-claras-public-qr-'
 const today = new Date().toISOString().slice(0, 10)
 const dayMs = 86_400_000
 const me: ActorId = 'me'
@@ -598,20 +599,47 @@ function dateToIcs(date: string) {
   return date.replaceAll('-', '')
 }
 
+function publicQrPayloadFromUnknown(value: unknown): PublicQrPayload | null {
+  if (!value || typeof value !== 'object') return null
+  const parsed = value as Partial<PublicQrPayload>
+  if (!parsed.title || !parsed.text || typeof parsed.amount !== 'number') return null
+  const tone: PublicQrPayload['tone'] = parsed.tone === 'pay' || parsed.tone === 'settled' ? parsed.tone : 'collect'
+  return { title: parsed.title, text: parsed.text, amount: parsed.amount, tone, photo: typeof parsed.photo === 'string' ? parsed.photo : undefined }
+}
+
+function compactQrPayload(payload: PublicQrPayload): PublicQrPayload {
+  if (!payload.photo?.startsWith('data:image/') || payload.photo.length <= 12000) return payload
+  return { ...payload, photo: undefined }
+}
+
 function buildPublicQrUrl(payload: PublicQrPayload) {
   const url = new URL(import.meta.env.BASE_URL, window.location.origin)
-  url.searchParams.set('cobro', JSON.stringify(payload))
+  const qrId = uid()
+  try {
+    localStorage.setItem(`${publicQrStoragePrefix}${qrId}`, JSON.stringify(payload))
+    url.searchParams.set('qrid', qrId)
+  } catch {
+    // El enlace sigue funcionando con el payload compacto si el navegador no deja guardar.
+  }
+  url.searchParams.set('cobro', JSON.stringify(compactQrPayload(payload)))
   return url.toString()
 }
 
 function readPublicQrPayload(): PublicQrPayload | null {
+  const qrId = new URLSearchParams(window.location.search).get('qrid')
+  if (qrId) {
+    try {
+      const storedPayload = localStorage.getItem(`${publicQrStoragePrefix}${qrId}`)
+      const parsedStoredPayload = storedPayload ? publicQrPayloadFromUnknown(JSON.parse(storedPayload)) : null
+      if (parsedStoredPayload) return parsedStoredPayload
+    } catch {
+      // Si no hay payload local, se usa el que viaja dentro del enlace.
+    }
+  }
   const rawPayload = new URLSearchParams(window.location.search).get('cobro')
   if (!rawPayload) return null
   try {
-    const parsed = JSON.parse(rawPayload) as Partial<PublicQrPayload>
-    if (!parsed.title || !parsed.text || typeof parsed.amount !== 'number') return null
-    const tone: PublicQrPayload['tone'] = parsed.tone === 'pay' || parsed.tone === 'settled' ? parsed.tone : 'collect'
-    return { title: parsed.title, text: parsed.text, amount: parsed.amount, tone, photo: typeof parsed.photo === 'string' ? parsed.photo : undefined }
+    return publicQrPayloadFromUnknown(JSON.parse(rawPayload))
   } catch {
     return null
   }
@@ -620,7 +648,7 @@ function readPublicQrPayload(): PublicQrPayload | null {
 function qrPhotoForPerson(person: Person) {
   if (!person.avatar) return undefined
   if (/^https?:\/\//.test(person.avatar)) return person.avatar
-  if (person.avatar.startsWith('data:image/') && person.avatar.length <= 12000) return person.avatar
+  if (person.avatar.startsWith('data:image/')) return person.avatar
   return undefined
 }
 
@@ -3644,16 +3672,22 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
   const [copied, setCopied] = useState(false)
   const title =
     payload.tone === 'collect'
-      ? 'SE BUSCA'
+      ? 'WANTED'
       : payload.tone === 'pay'
         ? 'AVISO DE PAGO'
         : 'CUENTA CUADRADA'
   const subtitle =
     payload.tone === 'collect'
-      ? 'Para cuadrar cuentas'
+      ? 'Se busca para cuadrar cuentas'
       : payload.tone === 'pay'
         ? 'Pendiente a tu favor'
         : 'Sin saldo pendiente'
+  const wantedLine =
+    payload.tone === 'collect'
+      ? 'Pendiente de pago'
+      : payload.tone === 'pay'
+        ? 'Pago pendiente a tu favor'
+        : 'Sin deuda'
   const actionText =
     payload.tone === 'collect'
       ? 'Revisa el importe y avisa cuando este pagado para cerrar la cuenta.'
@@ -3684,16 +3718,16 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
     <main className="public-qr-shell">
       <section className={`public-qr-card ${payload.tone}`}>
         <div className="wanted-frame">
-          <span>{subtitle}</span>
+          <span className="wanted-overline">{subtitle}</span>
           <h1>{title}</h1>
           <div className="wanted-photo">
             {payload.photo ? <img alt="" src={payload.photo} /> : <strong>{initial}</strong>}
           </div>
           <h2>{payload.title}</h2>
+          <span className="wanted-deadline">{wantedLine}</span>
+          <div className="public-amount">{formatMoney(payload.amount)}</div>
         </div>
         <span className="eyebrow">Cuentas claras</span>
-        <p className="wanted-label">Importe pendiente</p>
-        <div className="public-amount">{formatMoney(payload.amount)}</div>
         <p>{payload.text}</p>
         <p className="public-qr-note">{actionText}</p>
         <div className="button-row">

@@ -287,9 +287,9 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await page.getByRole('button', { name: /Personas/i }).click()
   await page.getByRole('textbox', { name: 'Nombre' }).fill('Kiko')
   await page.locator('input[type="file"][accept="image/*"]').setInputFiles({
-    name: 'kiko.png',
-    mimeType: 'image/png',
-    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mO8e/fufwAJ+gP8U3Sk7AAAAABJRU5ErkJggg==', 'base64'),
+    name: 'kiko.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><rect width="160" height="160" fill="#f6c453"/><circle cx="80" cy="70" r="44" fill="#0f766e"/><circle cx="64" cy="62" r="7" fill="#fff"/><circle cx="96" cy="62" r="7" fill="#fff"/><path d="M54 94c18 16 38 16 56 0" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round"/></svg>'),
   })
   await expect(page.locator('.avatar-editor img')).toBeVisible()
   await page.getByRole('button', { name: /Anadir persona/i }).click()
@@ -309,7 +309,7 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   expect(publicQrHref).toContain('cobro=')
   const publicQrPage = await page.context().newPage()
   await publicQrPage.goto(publicQrHref!)
-  await expect(publicQrPage.getByRole('heading', { name: /SE BUSCA/i })).toBeVisible()
+  await expect(publicQrPage.getByRole('heading', { name: /WANTED/i })).toBeVisible()
   await expect(publicQrPage.getByRole('heading', { name: /Kiko/i })).toBeVisible()
   await expect(publicQrPage.getByText(/Kiko, tienes 11,00/i)).toBeVisible()
   await expect(publicQrPage.locator('.public-amount')).toHaveText(/11,00\s*€/)
