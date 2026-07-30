@@ -182,6 +182,17 @@ interface RecoveryKitPayload {
   createdAt?: string
 }
 
+interface PublicQrPayload {
+  title: string
+  text: string
+  amount: number
+  tone: 'collect' | 'pay' | 'settled'
+}
+
+interface QrPayload extends PublicQrPayload {
+  url: string
+}
+
 interface SmartDraft {
   kind: RecordKind
   title: string
@@ -586,6 +597,25 @@ function dateToIcs(date: string) {
   return date.replaceAll('-', '')
 }
 
+function buildPublicQrUrl(payload: PublicQrPayload) {
+  const url = new URL(import.meta.env.BASE_URL, window.location.origin)
+  url.searchParams.set('cobro', JSON.stringify(payload))
+  return url.toString()
+}
+
+function readPublicQrPayload(): PublicQrPayload | null {
+  const rawPayload = new URLSearchParams(window.location.search).get('cobro')
+  if (!rawPayload) return null
+  try {
+    const parsed = JSON.parse(rawPayload) as Partial<PublicQrPayload>
+    if (!parsed.title || !parsed.text || typeof parsed.amount !== 'number') return null
+    const tone: PublicQrPayload['tone'] = parsed.tone === 'pay' || parsed.tone === 'settled' ? parsed.tone : 'collect'
+    return { title: parsed.title, text: parsed.text, amount: parsed.amount, tone }
+  } catch {
+    return null
+  }
+}
+
 function imageFileToAvatar(file: File) {
   return new Promise<string>((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -675,6 +705,7 @@ function firebaseAuthMessage(error: unknown) {
 }
 
 function App() {
+  const publicQrPayload = useMemo(() => readPublicQrPayload(), [])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState('')
@@ -735,7 +766,7 @@ function App() {
   const [pinUnlock, setPinUnlock] = useState('')
   const [pinConfigured, setPinConfigured] = useState(false)
   const [pinLocked, setPinLocked] = useState(false)
-  const [qrPayload, setQrPayload] = useState<{ title: string; text: string } | null>(null)
+  const [qrPayload, setQrPayload] = useState<QrPayload | null>(null)
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
@@ -2056,7 +2087,13 @@ function App() {
       : balance < 0
         ? `Debo ${formatMoney(Math.abs(balance))} a ${person.name} en Cuentas claras`
         : `${person.name} esta a cero en Cuentas claras`
-    setQrPayload({ title: person.name, text })
+    const payload: PublicQrPayload = {
+      title: person.name,
+      text,
+      amount: Math.abs(balance),
+      tone: balance > 0 ? 'collect' : balance < 0 ? 'pay' : 'settled',
+    }
+    setQrPayload({ ...payload, url: buildPublicQrUrl(payload) })
   }
 
   async function settlePerson(person: Person) {
@@ -2369,6 +2406,10 @@ function App() {
     setGroups([])
     setActiveGroupId(null)
     setAuthPassword('')
+  }
+
+  if (publicQrPayload) {
+    return <PublicQrCard payload={publicQrPayload} />
   }
 
   if (!currentUser) {
@@ -3562,13 +3603,20 @@ function App() {
               <h2>QR de cobro</h2>
               <QrCode aria-hidden="true" />
             </div>
-            <img alt="" src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload.text)}`} />
+            <img alt="" src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload.url)}`} />
             <strong>{qrPayload.title}</strong>
             <p>{qrPayload.text}</p>
+            <a className="qr-preview-link" href={qrPayload.url} target="_blank" rel="noreferrer">
+              Ver tarjeta que abre el QR
+            </a>
             <div className="button-row">
-              <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(qrPayload.text).then(() => setNotice('Texto QR copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
+              <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(qrPayload.url).then(() => setNotice('Enlace QR copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
+                <Link2 aria-hidden="true" />
+                Enlace
+              </button>
+              <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(qrPayload.text).then(() => setNotice('Mensaje copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
                 <Copy aria-hidden="true" />
-                Copiar
+                Mensaje
               </button>
               <button className="primary-button" type="button" onClick={() => setQrPayload(null)}>
                 <X aria-hidden="true" />
@@ -3578,6 +3626,69 @@ function App() {
           </section>
         </div>
       )}
+    </main>
+  )
+}
+
+function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
+  const [copied, setCopied] = useState(false)
+  const title =
+    payload.tone === 'collect'
+      ? 'Pago pendiente'
+      : payload.tone === 'pay'
+        ? 'Cuenta por cuadrar'
+        : 'Cuenta cuadrada'
+  const actionText =
+    payload.tone === 'collect'
+      ? 'Revisa el importe y avisa cuando este pagado.'
+      : payload.tone === 'pay'
+        ? 'Este importe aparece como pendiente de pago.'
+        : 'No hay saldo pendiente ahora mismo.'
+
+  async function copyText() {
+    try {
+      await navigator.clipboard?.writeText(payload.text)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  async function shareText() {
+    try {
+      if (navigator.share) await navigator.share({ title: 'Cuentas claras', text: payload.text })
+      else await copyText()
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <main className="public-qr-shell">
+      <section className={`public-qr-card ${payload.tone}`}>
+        <div className="brand-mark">
+          <QrCode aria-hidden="true" />
+        </div>
+        <span className="eyebrow">Cuentas claras</span>
+        <h1>{title}</h1>
+        <div className="public-amount">{formatMoney(payload.amount)}</div>
+        <h2>{payload.title}</h2>
+        <p>{payload.text}</p>
+        <p className="public-qr-note">{actionText}</p>
+        <div className="button-row">
+          <button className="primary-button" type="button" onClick={shareText}>
+            <MessageCircle aria-hidden="true" />
+            Compartir
+          </button>
+          <button className="secondary-button" type="button" onClick={copyText}>
+            <Copy aria-hidden="true" />
+            {copied ? 'Copiado' : 'Copiar texto'}
+          </button>
+        </div>
+        <a className="public-app-link" href={import.meta.env.BASE_URL}>
+          Abrir Cuentas claras
+        </a>
+      </section>
     </main>
   )
 }
