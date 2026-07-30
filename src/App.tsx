@@ -187,6 +187,7 @@ interface PublicQrPayload {
   text: string
   amount: number
   tone: 'collect' | 'pay' | 'settled'
+  photo?: string
 }
 
 interface QrPayload extends PublicQrPayload {
@@ -610,10 +611,17 @@ function readPublicQrPayload(): PublicQrPayload | null {
     const parsed = JSON.parse(rawPayload) as Partial<PublicQrPayload>
     if (!parsed.title || !parsed.text || typeof parsed.amount !== 'number') return null
     const tone: PublicQrPayload['tone'] = parsed.tone === 'pay' || parsed.tone === 'settled' ? parsed.tone : 'collect'
-    return { title: parsed.title, text: parsed.text, amount: parsed.amount, tone }
+    return { title: parsed.title, text: parsed.text, amount: parsed.amount, tone, photo: typeof parsed.photo === 'string' ? parsed.photo : undefined }
   } catch {
     return null
   }
+}
+
+function qrPhotoForPerson(person: Person) {
+  if (!person.avatar) return undefined
+  if (/^https?:\/\//.test(person.avatar)) return person.avatar
+  if (person.avatar.startsWith('data:image/') && person.avatar.length <= 12000) return person.avatar
+  return undefined
 }
 
 function imageFileToAvatar(file: File) {
@@ -2082,16 +2090,18 @@ function App() {
 
   function openPersonQr(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    const ownerName = currentUser?.name || 'Cuentas claras'
     const text = balance > 0
-      ? `${person.name} debe ${formatMoney(balance)} en Cuentas claras`
+      ? `${person.name}, tienes ${formatMoney(balance)} pendiente con ${ownerName}. Cuando lo pagues, avisa para dejar la cuenta cuadrada.`
       : balance < 0
-        ? `Debo ${formatMoney(Math.abs(balance))} a ${person.name} en Cuentas claras`
-        : `${person.name} esta a cero en Cuentas claras`
+        ? `${ownerName} tiene pendiente pagarte ${formatMoney(Math.abs(balance))}. Esta tarjeta sirve para recordar la cuenta.`
+        : `${person.name} esta a cero: no hay saldo pendiente en Cuentas claras.`
     const payload: PublicQrPayload = {
       title: person.name,
       text,
       amount: Math.abs(balance),
       tone: balance > 0 ? 'collect' : balance < 0 ? 'pay' : 'settled',
+      photo: qrPhotoForPerson(person),
     }
     setQrPayload({ ...payload, url: buildPublicQrUrl(payload) })
   }
@@ -3634,16 +3644,23 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
   const [copied, setCopied] = useState(false)
   const title =
     payload.tone === 'collect'
-      ? 'Pago pendiente'
+      ? 'SE BUSCA'
       : payload.tone === 'pay'
-        ? 'Cuenta por cuadrar'
-        : 'Cuenta cuadrada'
+        ? 'AVISO DE PAGO'
+        : 'CUENTA CUADRADA'
+  const subtitle =
+    payload.tone === 'collect'
+      ? 'Para cuadrar cuentas'
+      : payload.tone === 'pay'
+        ? 'Pendiente a tu favor'
+        : 'Sin saldo pendiente'
   const actionText =
     payload.tone === 'collect'
-      ? 'Revisa el importe y avisa cuando este pagado.'
+      ? 'Revisa el importe y avisa cuando este pagado para cerrar la cuenta.'
       : payload.tone === 'pay'
-        ? 'Este importe aparece como pendiente de pago.'
+        ? 'Este importe aparece como pendiente de pago a tu favor.'
         : 'No hay saldo pendiente ahora mismo.'
+  const initial = payload.title.trim()[0]?.toUpperCase() || 'C'
 
   async function copyText() {
     try {
@@ -3666,13 +3683,17 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
   return (
     <main className="public-qr-shell">
       <section className={`public-qr-card ${payload.tone}`}>
-        <div className="brand-mark">
-          <QrCode aria-hidden="true" />
+        <div className="wanted-frame">
+          <span>{subtitle}</span>
+          <h1>{title}</h1>
+          <div className="wanted-photo">
+            {payload.photo ? <img alt="" src={payload.photo} /> : <strong>{initial}</strong>}
+          </div>
+          <h2>{payload.title}</h2>
         </div>
         <span className="eyebrow">Cuentas claras</span>
-        <h1>{title}</h1>
+        <p className="wanted-label">Importe pendiente</p>
         <div className="public-amount">{formatMoney(payload.amount)}</div>
-        <h2>{payload.title}</h2>
         <p>{payload.text}</p>
         <p className="public-qr-note">{actionText}</p>
         <div className="button-row">

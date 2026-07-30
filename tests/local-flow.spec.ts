@@ -284,7 +284,16 @@ test('advanced tools handle favorites, filters, attachments and recurring record
 test('privacy mode, pin lock and QR collection tools work', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Privacy')
-  await addPerson(page, 'Nuria QR')
+  await page.getByRole('button', { name: /Personas/i }).click()
+  await page.getByRole('textbox', { name: 'Nombre' }).fill('Kiko')
+  await page.locator('input[type="file"][accept="image/*"]').setInputFiles({
+    name: 'kiko.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mO8e/fufwAJ+gP8U3Sk7AAAAABJRU5ErkJggg==', 'base64'),
+  })
+  await expect(page.locator('.avatar-editor img')).toBeVisible()
+  await page.getByRole('button', { name: /Anadir persona/i }).click()
+  await expect(page.getByText('Kiko')).toBeVisible()
   await addDebt(page, 'Cafe QR', '11')
 
   await page.getByRole('button', { name: /Privacidad visual/i }).click()
@@ -295,14 +304,16 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await page.getByRole('button', { name: /QR de cobro/i }).first().click()
   const qrDialog = page.getByRole('dialog', { name: /QR de cobro/i })
   await expect(qrDialog).toBeVisible()
-  await expect(page.getByText(/Nuria QR debe 11,00/i)).toBeVisible()
+  await expect(page.getByText(/Kiko, tienes 11,00/i)).toBeVisible()
   const publicQrHref = await qrDialog.getByRole('link', { name: /Ver tarjeta/i }).getAttribute('href')
   expect(publicQrHref).toContain('cobro=')
   const publicQrPage = await page.context().newPage()
   await publicQrPage.goto(publicQrHref!)
-  await expect(publicQrPage.getByRole('heading', { name: /Pago pendiente/i })).toBeVisible()
-  await expect(publicQrPage.getByText(/Nuria QR debe 11,00/i)).toBeVisible()
+  await expect(publicQrPage.getByRole('heading', { name: /SE BUSCA/i })).toBeVisible()
+  await expect(publicQrPage.getByRole('heading', { name: /Kiko/i })).toBeVisible()
+  await expect(publicQrPage.getByText(/Kiko, tienes 11,00/i)).toBeVisible()
   await expect(publicQrPage.locator('.public-amount')).toHaveText(/11,00\s*€/)
+  await expect(publicQrPage.locator('.wanted-photo img')).toBeVisible()
   await publicQrPage.close()
   await qrDialog.getByRole('button', { name: /^Cerrar$/i }).click()
 
