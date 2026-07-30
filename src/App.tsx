@@ -3696,7 +3696,7 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : 'Reward'
   const actionText =
     payload.tone === 'collect'
-      ? 'Cuando lo pagues, avisa para dejar la cuenta cerrada.'
+      ? 'Paga y avisa para cerrar la cuenta.'
       : payload.tone === 'pay'
         ? 'Este importe aparece pendiente a tu favor.'
         : 'No hay saldo pendiente ahora mismo.'
@@ -3738,6 +3738,11 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
           <div className="wanted-copy">
             <p className="wanted-message">{payload.text}</p>
             <p className="wanted-notice">{actionText}</p>
+          </div>
+          <div className="wanted-scribbles" aria-hidden="true">
+            <span />
+            <span />
+            <span />
           </div>
           <div className="wanted-footer">
             <span>Cuentas claras</span>
