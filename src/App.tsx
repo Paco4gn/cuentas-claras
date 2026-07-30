@@ -3686,13 +3686,19 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
     payload.tone === 'collect'
       ? 'Pendiente de pago'
       : payload.tone === 'pay'
-        ? 'Pago pendiente a tu favor'
-        : 'Sin deuda'
+        ? 'Pendiente a tu favor'
+        : 'Cuenta saldada'
+  const rewardLabel =
+    payload.tone === 'collect'
+      ? 'Recompensa pendiente'
+      : payload.tone === 'pay'
+        ? 'Te toca pagar'
+        : 'Sin importe pendiente'
   const actionText =
     payload.tone === 'collect'
-      ? 'Revisa el importe y avisa cuando este pagado para cerrar la cuenta.'
+      ? 'Cuando lo pagues, avisa para dejar la cuenta cerrada.'
       : payload.tone === 'pay'
-        ? 'Este importe aparece como pendiente de pago a tu favor.'
+        ? 'Este importe aparece pendiente a tu favor.'
         : 'No hay saldo pendiente ahora mismo.'
   const initial = payload.title.trim()[0]?.toUpperCase() || 'C'
 
@@ -3723,14 +3729,17 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
           <div className="wanted-photo">
             {payload.photo ? <img alt="" src={payload.photo} /> : <strong>{initial}</strong>}
           </div>
-          <h2>{payload.title}</h2>
-          <span className="wanted-deadline">{wantedLine}</span>
-          <div className="public-amount">{formatMoney(payload.amount)}</div>
+          <span className="wanted-status">{wantedLine}</span>
+          <h2 className="wanted-name">{payload.title}</h2>
+          <div className="wanted-reward">
+            <span>{rewardLabel}</span>
+            <strong>{formatMoney(payload.amount)}</strong>
+          </div>
+          <p className="wanted-message">{payload.text}</p>
+          <p className="wanted-notice">{actionText}</p>
+          <span className="wanted-brand">Cuentas claras</span>
         </div>
-        <span className="eyebrow">Cuentas claras</span>
-        <p>{payload.text}</p>
-        <p className="public-qr-note">{actionText}</p>
-        <div className="button-row">
+        <div className="button-row public-actions">
           <button className="primary-button" type="button" onClick={shareText}>
             <MessageCircle aria-hidden="true" />
             Compartir

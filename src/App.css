@@ -1201,58 +1201,77 @@ button:focus-visible {
 .public-qr-shell {
   align-items: center;
   background:
-    radial-gradient(circle at 18% 12%, rgba(120, 53, 15, 0.16), transparent 28%),
-    radial-gradient(circle at 82% 88%, rgba(69, 26, 3, 0.14), transparent 30%),
-    #2d241d;
+    radial-gradient(circle at 50% 10%, rgba(245, 191, 104, 0.22), transparent 24%),
+    radial-gradient(circle at 10% 20%, rgba(120, 53, 15, 0.26), transparent 30%),
+    radial-gradient(circle at 92% 84%, rgba(41, 20, 8, 0.38), transparent 34%),
+    linear-gradient(135deg, #2f2015 0%, #1a100a 100%);
   display: grid;
   min-height: 100svh;
-  padding: 24px;
+  padding: 22px;
 }
 
 .public-qr-card {
-  background:
-    linear-gradient(90deg, rgba(120, 53, 15, 0.04) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(120, 53, 15, 0.04) 1px, transparent 1px),
-    radial-gradient(circle at 20% 20%, rgba(146, 64, 14, 0.18), transparent 24%),
-    radial-gradient(circle at 85% 80%, rgba(69, 26, 3, 0.14), transparent 22%),
-    linear-gradient(180deg, #f6dfae, #e7bf7f);
-  background-size: 18px 18px, 18px 18px, auto, auto, auto;
-  border: 4px solid #211407;
-  border-radius: 4px;
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   color: #2f1f12;
   justify-self: center;
-  max-width: 560px;
-  padding: 22px;
+  max-width: 530px;
+  padding: 0;
   width: 100%;
 }
 
 .public-qr-card.pay {
-  background:
-    linear-gradient(180deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.98)),
-    radial-gradient(circle at top right, rgba(190, 18, 60, 0.16), transparent 34%);
+  background: transparent;
 }
 
 .public-qr-card.settled {
-  background:
-    linear-gradient(180deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.98)),
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 34%);
+  background: transparent;
 }
 
 .wanted-frame {
-  border: 3px solid #211407;
-  border-radius: 2px;
-  padding: 14px 14px 18px;
+  position: relative;
+  background:
+    linear-gradient(90deg, rgba(90, 48, 15, 0.08) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(90, 48, 15, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.25), transparent 20%),
+    radial-gradient(circle at 88% 12%, rgba(255, 230, 170, 0.2), transparent 22%),
+    radial-gradient(circle at 85% 90%, rgba(120, 53, 15, 0.18), transparent 32%),
+    linear-gradient(180deg, #f5d999 0%, #efc47c 52%, #d99b4e 100%);
+  background-size: 15px 15px, 15px 15px, auto, auto, auto, auto;
+  border: 6px solid #171008;
+  box-shadow:
+    inset 0 0 0 2px #f7e2a8,
+    inset 0 0 0 5px rgba(23, 16, 8, 0.78),
+    inset 0 -36px 70px rgba(102, 44, 13, 0.18),
+    0 34px 95px rgba(0, 0, 0, 0.58);
+  padding: 26px 26px 24px;
   text-align: center;
 }
 
+.wanted-frame::before,
+.wanted-frame::after {
+  border: 2px solid rgba(23, 16, 8, 0.9);
+  content: '';
+  inset: 16px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.wanted-frame::after {
+  border-color: rgba(255, 246, 210, 0.42);
+  inset: 21px;
+}
+
 .wanted-overline,
-.wanted-deadline,
-.wanted-label {
+.wanted-status,
+.wanted-reward span,
+.wanted-brand {
   color: #211407;
   display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1261,46 +1280,61 @@ button:focus-visible {
 .wanted-frame h1 {
   color: #1c1208;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 78px;
+  font-size: 106px;
   letter-spacing: 0;
-  line-height: 0.82;
-  margin: 10px 0 18px;
+  line-height: 0.76;
+  margin: 12px 0 18px;
+  position: relative;
+  text-shadow: 0 2px 0 rgba(255, 234, 177, 0.5);
+  z-index: 1;
 }
 
-.wanted-frame h2 {
+.wanted-name {
   color: #1c1208;
+  display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 42px;
+  font-size: clamp(38px, 8vw, 58px);
+  font-weight: 900;
   letter-spacing: 0;
   line-height: 0.96;
-  margin: 16px 0 8px;
-  text-transform: uppercase;
+  margin: 10px 0 0;
   overflow-wrap: anywhere;
-}
-
-.wanted-deadline {
-  border-top: 2px solid #211407;
-  margin: 12px 0 0;
-  padding-top: 12px;
+  text-transform: uppercase;
+  text-shadow: 0 2px 0 rgba(255, 234, 177, 0.45);
 }
 
 .wanted-photo {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1.16;
   background: #f8e7b6;
-  border: 3px solid #211407;
-  border-radius: 2px;
+  border: 5px solid #171008;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 239, 186, 0.5),
+    0 12px 0 rgba(65, 31, 11, 0.12);
   display: grid;
   margin: 0 auto;
   overflow: hidden;
   place-items: center;
+  position: relative;
   width: 100%;
+  z-index: 1;
 }
 
 .wanted-photo img {
   height: 100%;
   object-fit: cover;
+  object-position: center 34%;
   width: 100%;
-  filter: saturate(0.88) contrast(1.08) sepia(0.16);
+  filter: saturate(0.88) contrast(1.12) sepia(0.22);
+}
+
+.wanted-photo::after {
+  background:
+    linear-gradient(90deg, rgba(23, 16, 8, 0.12), transparent 10%, transparent 90%, rgba(23, 16, 8, 0.12)),
+    linear-gradient(180deg, transparent 80%, rgba(23, 16, 8, 0.1));
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
 }
 
 .wanted-photo strong {
@@ -1309,65 +1343,115 @@ button:focus-visible {
   font-size: 150px;
 }
 
-.public-qr-card p {
-  color: #3f2b18;
-  line-height: 1.5;
-  margin: 0 0 12px;
-}
-
-.wanted-label {
+.wanted-status {
+  border-top: 3px solid #211407;
+  font-size: clamp(24px, 5vw, 42px);
+  line-height: 1;
   margin-top: 18px;
+  padding-top: 14px;
 }
 
-.public-amount {
+.wanted-reward {
+  margin-top: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.wanted-reward strong {
   color: #1c1208;
+  display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 56px;
+  font-size: clamp(58px, 13vw, 90px);
   font-weight: 900;
   letter-spacing: 0;
-  line-height: 1;
-  margin: 8px 0 0;
+  line-height: 0.92;
+  margin: 6px 0 0;
   text-align: center;
+  text-shadow: 0 2px 0 rgba(255, 234, 177, 0.45);
 }
 
-.public-qr-card.pay .public-amount {
+.public-qr-card.pay .wanted-reward strong {
   color: #7f1d1d;
 }
 
-.public-qr-card.settled .public-amount {
+.public-qr-card.settled .wanted-reward strong {
   color: #1d4ed8;
 }
 
-.public-qr-note {
-  background: rgba(255, 251, 235, 0.72);
-  border: 1px dashed #92400e;
-  border-radius: 8px;
-  padding: 12px;
+.wanted-message {
+  border-top: 3px solid #211407;
+  color: #2b1a0c;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  text-align: left;
+}
+
+.wanted-notice {
+  border: 2px dashed #8b4517;
+  color: #2f1f12;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.wanted-brand {
+  border-top: 2px solid #211407;
+  color: #0f766e;
+  margin-top: 16px;
+  padding-top: 10px;
+  text-align: left;
 }
 
 .public-app-link {
+  color: #f6d58f;
   margin: 16px 0 0;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.public-actions {
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.public-actions .primary-button,
+.public-actions .secondary-button {
+  min-height: 42px;
 }
 
 @media (max-width: 560px) {
   .public-qr-shell {
-    padding: 14px;
+    padding: 10px;
   }
 
-  .public-qr-card {
-    padding: 14px;
+  .wanted-frame {
+    padding: 18px;
+  }
+
+  .wanted-frame::before {
+    inset: 11px;
+  }
+
+  .wanted-frame::after {
+    inset: 16px;
   }
 
   .wanted-frame h1 {
-    font-size: 54px;
+    font-size: 72px;
   }
 
-  .wanted-frame h2 {
-    font-size: 30px;
+  .wanted-name {
+    font-size: 38px;
   }
 
-  .public-amount {
-    font-size: 42px;
+  .wanted-message {
+    font-size: 16px;
   }
 }
 
