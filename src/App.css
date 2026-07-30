@@ -1497,7 +1497,8 @@ button:focus-visible {
 
 .public-app-link {
   color: #f6d58f;
-  margin: 16px 0 0;
+  justify-content: center;
+  margin: 16px auto 0;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
 }
 
