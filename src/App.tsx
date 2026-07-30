@@ -3684,16 +3684,16 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : 'Sin saldo pendiente'
   const wantedLine =
     payload.tone === 'collect'
-      ? 'Pendiente de pago'
+      ? 'Dead or alive'
       : payload.tone === 'pay'
-        ? 'Pendiente a tu favor'
-        : 'Cuenta saldada'
+        ? 'To be paid'
+        : 'Cleared'
   const rewardLabel =
     payload.tone === 'collect'
-      ? 'Recompensa pendiente'
+      ? 'Bounty'
       : payload.tone === 'pay'
-        ? 'Te toca pagar'
-        : 'Sin importe pendiente'
+        ? 'Amount'
+        : 'Reward'
   const actionText =
     payload.tone === 'collect'
       ? 'Cuando lo pagues, avisa para dejar la cuenta cerrada.'
@@ -3735,9 +3735,14 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
             <span>{rewardLabel}</span>
             <strong>{formatMoney(payload.amount)}</strong>
           </div>
-          <p className="wanted-message">{payload.text}</p>
-          <p className="wanted-notice">{actionText}</p>
-          <span className="wanted-brand">Cuentas claras</span>
+          <div className="wanted-copy">
+            <p className="wanted-message">{payload.text}</p>
+            <p className="wanted-notice">{actionText}</p>
+          </div>
+          <div className="wanted-footer">
+            <span>Cuentas claras</span>
+            <strong>MARINE</strong>
+          </div>
         </div>
         <div className="button-row public-actions">
           <button className="primary-button" type="button" onClick={shareText}>

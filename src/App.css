@@ -1201,23 +1201,25 @@ button:focus-visible {
 .public-qr-shell {
   align-items: center;
   background:
-    radial-gradient(circle at 50% 10%, rgba(245, 191, 104, 0.22), transparent 24%),
-    radial-gradient(circle at 10% 20%, rgba(120, 53, 15, 0.26), transparent 30%),
-    radial-gradient(circle at 92% 84%, rgba(41, 20, 8, 0.38), transparent 34%),
-    linear-gradient(135deg, #2f2015 0%, #1a100a 100%);
+    radial-gradient(circle at 50% 8%, rgba(238, 195, 116, 0.2), transparent 26%),
+    radial-gradient(circle at 14% 16%, rgba(87, 45, 20, 0.28), transparent 32%),
+    radial-gradient(circle at 86% 88%, rgba(0, 0, 0, 0.38), transparent 36%),
+    #2a1c13;
   display: grid;
   min-height: 100svh;
-  padding: 22px;
+  padding: 18px;
 }
 
 .public-qr-card {
   background: transparent;
   border: 0;
   border-radius: 0;
+  box-sizing: border-box;
   box-shadow: none;
   color: #2f1f12;
   justify-self: center;
-  max-width: 530px;
+  max-width: min(500px, calc(100vw - 20px));
+  min-width: 0;
   padding: 0;
   width: 100%;
 }
@@ -1233,83 +1235,97 @@ button:focus-visible {
 .wanted-frame {
   position: relative;
   background:
-    linear-gradient(90deg, rgba(90, 48, 15, 0.08) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(90, 48, 15, 0.08) 1px, transparent 1px),
-    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.25), transparent 20%),
-    radial-gradient(circle at 88% 12%, rgba(255, 230, 170, 0.2), transparent 22%),
-    radial-gradient(circle at 85% 90%, rgba(120, 53, 15, 0.18), transparent 32%),
-    linear-gradient(180deg, #f5d999 0%, #efc47c 52%, #d99b4e 100%);
-  background-size: 15px 15px, 15px 15px, auto, auto, auto, auto;
-  border: 6px solid #171008;
+    linear-gradient(90deg, rgba(70, 38, 15, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(70, 38, 15, 0.07) 1px, transparent 1px),
+    radial-gradient(circle at 16% 8%, rgba(255, 246, 207, 0.34), transparent 22%),
+    radial-gradient(circle at 80% 88%, rgba(117, 53, 19, 0.22), transparent 32%),
+    linear-gradient(180deg, #f1d18f 0%, #eec175 48%, #d99a4f 100%);
+  background-size: 17px 17px, 17px 17px, auto, auto, auto;
+  border: 5px solid #100a05;
   box-shadow:
-    inset 0 0 0 2px #f7e2a8,
-    inset 0 0 0 5px rgba(23, 16, 8, 0.78),
-    inset 0 -36px 70px rgba(102, 44, 13, 0.18),
-    0 34px 95px rgba(0, 0, 0, 0.58);
-  padding: 26px 26px 24px;
+    inset 0 0 0 2px #f6d99a,
+    inset 0 0 0 6px rgba(16, 10, 5, 0.82),
+    inset 0 -44px 70px rgba(88, 39, 13, 0.18),
+    0 34px 88px rgba(0, 0, 0, 0.6);
+  min-height: 740px;
+  padding: 24px 24px 22px;
   text-align: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .wanted-frame::before,
 .wanted-frame::after {
-  border: 2px solid rgba(23, 16, 8, 0.9);
+  border: 2px solid rgba(16, 10, 5, 0.95);
   content: '';
-  inset: 16px;
+  inset: 15px;
   pointer-events: none;
   position: absolute;
 }
 
 .wanted-frame::after {
   border-color: rgba(255, 246, 210, 0.42);
-  inset: 21px;
+  inset: 20px;
 }
 
 .wanted-overline,
 .wanted-status,
 .wanted-reward span,
-.wanted-brand {
-  color: #211407;
+.wanted-footer {
+  color: #160d06;
   display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 16px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
-.wanted-frame h1 {
-  color: #1c1208;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 106px;
-  letter-spacing: 0;
-  line-height: 0.76;
-  margin: 12px 0 18px;
+.wanted-overline {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1;
   position: relative;
-  text-shadow: 0 2px 0 rgba(255, 234, 177, 0.5);
+  z-index: 1;
+}
+
+.wanted-frame h1 {
+  color: #160d06;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(68px, 18vw, 118px);
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.7;
+  margin: 12px 0 20px;
+  position: relative;
+  text-shadow:
+    0 2px 0 rgba(255, 230, 160, 0.45),
+    0 4px 0 rgba(103, 49, 15, 0.15);
   z-index: 1;
 }
 
 .wanted-name {
-  color: #1c1208;
+  color: #160d06;
   display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(38px, 8vw, 58px);
+  font-size: clamp(40px, 9vw, 64px);
   font-weight: 900;
   letter-spacing: 0;
-  line-height: 0.96;
-  margin: 10px 0 0;
+  line-height: 0.88;
+  margin: 7px 0 0;
   overflow-wrap: anywhere;
   text-transform: uppercase;
   text-shadow: 0 2px 0 rgba(255, 234, 177, 0.45);
+  position: relative;
+  z-index: 1;
 }
 
 .wanted-photo {
-  aspect-ratio: 1.16;
-  background: #f8e7b6;
-  border: 5px solid #171008;
+  aspect-ratio: 1 / 0.82;
+  background: #e0b36f;
+  border: 4px solid #100a05;
   box-shadow:
-    inset 0 0 0 2px rgba(255, 239, 186, 0.5),
-    0 12px 0 rgba(65, 31, 11, 0.12);
+    inset 0 0 0 2px rgba(255, 232, 174, 0.52),
+    0 10px 0 rgba(65, 31, 11, 0.14);
   display: grid;
   margin: 0 auto;
   overflow: hidden;
@@ -1322,9 +1338,9 @@ button:focus-visible {
 .wanted-photo img {
   height: 100%;
   object-fit: cover;
-  object-position: center 34%;
+  object-position: center 36%;
   width: 100%;
-  filter: saturate(0.88) contrast(1.12) sepia(0.22);
+  filter: saturate(0.82) contrast(1.14) sepia(0.28);
 }
 
 .wanted-photo::after {
@@ -1344,30 +1360,42 @@ button:focus-visible {
 }
 
 .wanted-status {
-  border-top: 3px solid #211407;
-  font-size: clamp(24px, 5vw, 42px);
-  line-height: 1;
-  margin-top: 18px;
+  border-top: 3px solid #160d06;
+  font-size: clamp(33px, 7vw, 54px);
+  line-height: 0.92;
+  margin-top: 17px;
   padding-top: 14px;
-}
-
-.wanted-reward {
-  margin-top: 8px;
   position: relative;
   z-index: 1;
 }
 
+.wanted-reward {
+  margin-top: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.wanted-reward span {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
 .wanted-reward strong {
-  color: #1c1208;
+  color: #160d06;
   display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(58px, 13vw, 90px);
+  font-size: clamp(58px, 13.5vw, 92px);
   font-weight: 900;
   letter-spacing: 0;
   line-height: 0.92;
   margin: 6px 0 0;
   text-align: center;
   text-shadow: 0 2px 0 rgba(255, 234, 177, 0.45);
+}
+
+.wanted-reward strong::before {
+  content: '฿ ';
+  font-size: 0.75em;
 }
 
 .public-qr-card.pay .wanted-reward strong {
@@ -1378,35 +1406,59 @@ button:focus-visible {
   color: #1d4ed8;
 }
 
+.wanted-copy {
+  border-top: 3px solid #160d06;
+  margin-top: 16px;
+  padding-top: 12px;
+  position: relative;
+  z-index: 1;
+}
+
 .wanted-message {
-  border-top: 3px solid #211407;
-  color: #2b1a0c;
+  color: #211207;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
-  line-height: 1.35;
-  margin: 18px 0 0;
-  padding-top: 14px;
+  line-height: 1.22;
+  margin: 0;
   text-align: left;
 }
 
 .wanted-notice {
-  border: 2px dashed #8b4517;
+  border: 2px dashed rgba(102, 44, 13, 0.78);
   color: #2f1f12;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 1.35;
-  margin: 12px 0 0;
-  padding: 10px 12px;
+  line-height: 1.22;
+  margin: 10px 0 0;
+  padding: 9px 11px;
   text-align: left;
 }
 
-.wanted-brand {
-  border-top: 2px solid #211407;
-  color: #0f766e;
-  margin-top: 16px;
+.wanted-footer {
+  align-items: end;
+  border-top: 2px solid #160d06;
+  display: flex;
+  font-size: 17px;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 14px;
   padding-top: 10px;
-  text-align: left;
+  position: relative;
+  z-index: 1;
+}
+
+.wanted-footer span {
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.wanted-footer strong {
+  color: #160d06;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 31px;
+  line-height: 0.9;
 }
 
 .public-app-link {
@@ -1418,11 +1470,13 @@ button:focus-visible {
 .public-actions {
   justify-content: center;
   margin-top: 14px;
+  width: 100%;
 }
 
 .public-actions .primary-button,
 .public-actions .secondary-button {
   min-height: 42px;
+  min-width: 0;
 }
 
 @media (max-width: 560px) {
@@ -1431,7 +1485,13 @@ button:focus-visible {
   }
 
   .wanted-frame {
-    padding: 18px;
+    min-height: 690px;
+    padding: 18px 17px 17px;
+  }
+
+  .public-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .wanted-frame::before {
@@ -1443,15 +1503,15 @@ button:focus-visible {
   }
 
   .wanted-frame h1 {
-    font-size: 72px;
+    font-size: clamp(68px, 18vw, 82px);
   }
 
   .wanted-name {
-    font-size: 38px;
+    font-size: clamp(38px, 9vw, 48px);
   }
 
   .wanted-message {
-    font-size: 16px;
+    font-size: 14px;
   }
 }
 
