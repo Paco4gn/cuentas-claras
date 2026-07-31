@@ -1553,6 +1553,11 @@ button:focus-visible {
     font-size: clamp(35px, 8.4vw, 44px);
   }
 
+  .wanted-status {
+    font-size: clamp(32px, 9.6vw, 38px);
+    transform: none;
+  }
+
   .wanted-message {
     font-size: 11px;
   }
