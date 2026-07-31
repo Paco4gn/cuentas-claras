@@ -3753,7 +3753,6 @@ function App() {
 }
 
 function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
-  const [copied, setCopied] = useState(false)
   const ownerName = payload.ownerName || 'Cuentas claras'
   const title =
     payload.tone === 'collect'
@@ -3793,28 +3792,15 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         : `${payload.title.toUpperCase()} no tiene cuentas pendientes.`
   const noticeText =
     payload.tone === 'collect'
-      ? 'Ultimo aviso: paga y confirma para cerrar la cuenta.'
+      ? 'Paga y avisa para cerrar la cuenta.'
       : actionText
-  const shareMessage = `${payload.text}\n${window.location.href}`
+  const footerLabel =
+    payload.tone === 'collect'
+      ? 'Cuenta pendiente'
+      : payload.tone === 'pay'
+        ? 'Aviso pendiente'
+        : 'Cuenta cerrada'
   const initial = payload.title.trim()[0]?.toUpperCase() || 'C'
-
-  async function copyText() {
-    try {
-      await navigator.clipboard?.writeText(shareMessage)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  async function shareText() {
-    try {
-      if (navigator.share) await navigator.share({ title: `WANTED: ${payload.title}`, text: shareMessage })
-      else await copyText()
-    } catch {
-      setCopied(false)
-    }
-  }
 
   return (
     <main className="public-qr-shell">
@@ -3841,23 +3827,10 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
             <span />
           </div>
           <div className="wanted-footer">
-            <span>Cuentas claras</span>
+            <span>{footerLabel}</span>
             <strong>MARINE</strong>
           </div>
         </div>
-        <div className="button-row public-actions">
-          <button className="primary-button" type="button" onClick={shareText}>
-            <MessageCircle aria-hidden="true" />
-            Compartir
-          </button>
-          <button className="secondary-button" type="button" onClick={copyText}>
-            <Copy aria-hidden="true" />
-            {copied ? 'Copiado' : 'Copiar texto'}
-          </button>
-        </div>
-        <a className="public-app-link" href={import.meta.env.BASE_URL}>
-          Abrir Cuentas claras
-        </a>
       </section>
     </main>
   )
