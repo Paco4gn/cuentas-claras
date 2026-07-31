@@ -3760,67 +3760,47 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
       : payload.tone === 'pay'
         ? 'AVISO DE PAGO'
         : 'CUENTA CUADRADA'
-  const subtitle =
-    payload.tone === 'collect'
-      ? 'Se busca'
-      : payload.tone === 'pay'
-        ? 'Pendiente a tu favor'
-        : 'Sin saldo pendiente'
   const wantedLine =
     payload.tone === 'collect'
-      ? 'Dead or alive'
+      ? 'Dead or alive?'
       : payload.tone === 'pay'
-        ? 'To be paid'
-        : 'Cleared'
-  const rewardLabel =
-    payload.tone === 'collect'
-      ? 'Recompensa'
-      : payload.tone === 'pay'
-        ? 'Importe'
-        : 'Sin recompensa'
-  const actionText =
-    payload.tone === 'collect'
-      ? 'Salda la recompensa y avisa para cerrar el caso.'
-      : payload.tone === 'pay'
-        ? 'Caso abierto hasta que se confirme el pago.'
-        : 'Libre de cuentas pendientes.'
-  const posterText =
+        ? 'Payment alive?'
+        : 'Cleared alive'
+  const amountText = new Intl.NumberFormat('es-ES', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(payload.amount)
+  const smallPrint =
     payload.tone === 'collect'
       ? `${payload.title.toUpperCase()} adeuda ${formatMoney(payload.amount)} a ${ownerName.toUpperCase()}.`
       : payload.tone === 'pay'
         ? `${ownerName.toUpperCase()} adeuda ${formatMoney(payload.amount)} a ${payload.title.toUpperCase()}.`
-        : `${payload.title.toUpperCase()} no tiene cuentas pendientes.`
-  const noticeText =
-    payload.tone === 'collect'
-      ? 'Paga y avisa para cerrar la cuenta.'
-      : actionText
+        : `${payload.title.toUpperCase()} no tiene cuenta pendiente.`
   const footerLabel =
     payload.tone === 'collect'
-      ? 'Cuenta pendiente'
+      ? 'Pendiente de pago'
       : payload.tone === 'pay'
         ? 'Aviso pendiente'
         : 'Cuenta cerrada'
-  const initial = payload.title.trim()[0]?.toUpperCase() || 'C'
 
   return (
     <main className="public-qr-shell">
       <section className={`public-qr-card ${payload.tone}`}>
         <div className="wanted-frame">
-          <span className="wanted-overline">{subtitle}</span>
           <h1>{title}</h1>
           <div className="wanted-photo">
-            {payload.photo ? <img alt="" src={payload.photo} /> : <strong>{initial}</strong>}
+            {payload.photo ? <img alt="" src={payload.photo} /> : <span className="wanted-photo-missing">{payload.title}</span>}
           </div>
-          <span className="wanted-status">{wantedLine}</span>
-          <h2 className="wanted-name">{payload.title}</h2>
+          <div className="wanted-identity">
+            <span className="wanted-status">{wantedLine}</span>
+            <h2 className="wanted-name">{payload.title}</h2>
+          </div>
           <div className="wanted-reward">
-            <span>{rewardLabel}</span>
-            <strong>{formatMoney(payload.amount)}</strong>
+            <span aria-hidden="true">฿</span>
+            <strong>{amountText} €</strong>
+            <em>-</em>
           </div>
-          <div className="wanted-copy">
-            <p className="wanted-message">{posterText}</p>
-            <p className="wanted-notice">{noticeText}</p>
-          </div>
+          <p className="wanted-smallprint">{smallPrint}</p>
           <div className="wanted-scribbles" aria-hidden="true">
             <span />
             <span />
