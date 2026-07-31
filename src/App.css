@@ -1335,13 +1335,11 @@ button:focus-visible {
 }
 
 .wanted-photo-missing {
-  color: rgba(104, 48, 16, 0.84);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(54px, 5.6vw, 78px);
-  font-weight: 900;
-  line-height: 1;
-  text-transform: uppercase;
-  transform: scaleX(0.78);
+  background:
+    radial-gradient(circle at 50% 34%, rgba(242, 197, 113, 0.18), transparent 30%),
+    linear-gradient(135deg, rgba(97, 49, 17, 0.08), rgba(255, 232, 166, 0.04));
+  height: 100%;
+  width: 100%;
 }
 
 .wanted-identity {

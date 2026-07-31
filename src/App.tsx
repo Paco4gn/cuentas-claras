@@ -3766,10 +3766,6 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
       : payload.tone === 'pay'
         ? 'Payment alive?'
         : 'Cleared alive'
-  const amountText = new Intl.NumberFormat('es-ES', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(payload.amount)
   const smallPrint =
     payload.tone === 'collect'
       ? `${payload.title.toUpperCase()} adeuda ${formatMoney(payload.amount)} a ${ownerName.toUpperCase()}.`
@@ -3789,15 +3785,15 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         <div className="wanted-frame">
           <h1>{title}</h1>
           <div className="wanted-photo">
-            {payload.photo ? <img alt="" src={payload.photo} /> : <span className="wanted-photo-missing">{payload.title}</span>}
+            {payload.photo ? <img alt="" src={payload.photo} /> : <span className="wanted-photo-missing" aria-hidden="true" />}
           </div>
           <div className="wanted-identity">
             <span className="wanted-status">{wantedLine}</span>
             <h2 className="wanted-name">{payload.title}</h2>
           </div>
           <div className="wanted-reward">
-            <span aria-hidden="true">฿</span>
-            <strong>{amountText} €</strong>
+            <span aria-hidden="true">$</span>
+            <strong>{formatMoney(payload.amount)}</strong>
             <em>-</em>
           </div>
           <p className="wanted-smallprint">{smallPrint}</p>
