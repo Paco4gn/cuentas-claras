@@ -32,6 +32,23 @@ service cloud.firestore {
         && request.resource.data.status in ['por-pagar', 'parcial', 'pagado'];
     }
 
+    function validPublicQr() {
+      return request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.amount is number
+        && request.resource.data.amount >= 0
+        && request.resource.data.tone in ['collect', 'pay', 'settled'];
+    }
+
+    match /publicQrs/{qrId} {
+      allow read: if true;
+      allow create, update: if request.auth != null && validPublicQr();
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read, delete: if isOwner(userId);
       allow create, update: if isOwner(userId);

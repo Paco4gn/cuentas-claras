@@ -1236,9 +1236,11 @@ button:focus-visible {
 .wanted-frame {
   position: relative;
   background:
+    radial-gradient(ellipse at 50% 18%, rgba(255, 244, 198, 0.35), transparent 36%),
     linear-gradient(90deg, rgba(70, 38, 15, 0.09) 1px, transparent 1px),
     linear-gradient(180deg, rgba(70, 38, 15, 0.09) 1px, transparent 1px),
-    repeating-linear-gradient(8deg, rgba(92, 43, 15, 0.035) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(8deg, rgba(92, 43, 15, 0.038) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(0deg, rgba(88, 46, 18, 0.05) 0 1px, transparent 1px 9px),
     radial-gradient(circle at 16% 8%, rgba(255, 246, 207, 0.42), transparent 22%),
     radial-gradient(circle at 32% 34%, rgba(104, 54, 20, 0.13), transparent 18%),
     radial-gradient(circle at 7% 78%, rgba(92, 43, 15, 0.18), transparent 25%),
@@ -1246,8 +1248,8 @@ button:focus-visible {
     linear-gradient(90deg, rgba(37, 20, 8, 0.2), transparent 9%, transparent 91%, rgba(37, 20, 8, 0.22)),
     linear-gradient(180deg, rgba(37, 20, 8, 0.16), transparent 10%, transparent 88%, rgba(37, 20, 8, 0.24)),
     linear-gradient(180deg, #f4d58f 0%, #edbd70 46%, #d99347 100%);
-  background-blend-mode: multiply, multiply, multiply, normal, multiply, multiply, multiply, multiply, multiply, normal;
-  background-size: 17px 17px, 17px 17px, auto, auto, auto, auto, auto, auto, auto, auto;
+  background-blend-mode: screen, multiply, multiply, multiply, multiply, normal, multiply, multiply, multiply, multiply, multiply, normal;
+  background-size: auto, 17px 17px, 17px 17px, auto, 9px 9px, auto, auto, auto, auto, auto, auto, auto;
   border: 8px solid #0f0904;
   box-shadow:
     inset 0 0 0 3px #f6d99a,
@@ -1529,7 +1531,7 @@ button:focus-visible {
   }
 
   .wanted-frame {
-    padding: 18px 17px 17px;
+    padding: 20px 18px 18px;
   }
 
   .public-actions {
@@ -1546,16 +1548,22 @@ button:focus-visible {
   }
 
   .wanted-frame h1 {
-    font-size: clamp(66px, 18vw, 78px);
+    font-size: clamp(62px, 17.4vw, 74px);
+  }
+
+  .wanted-photo {
+    aspect-ratio: 1.1;
+    min-height: 222px;
   }
 
   .wanted-name {
-    font-size: clamp(35px, 8.4vw, 44px);
+    font-size: clamp(34px, 8.1vw, 42px);
   }
 
   .wanted-status {
-    font-size: clamp(32px, 9.6vw, 38px);
-    transform: none;
+    font-size: clamp(27px, 7.65vw, 31px);
+    transform: scaleX(0.9);
+    transform-origin: center;
   }
 
   .wanted-message {
@@ -1564,6 +1572,16 @@ button:focus-visible {
 
   .wanted-notice {
     font-size: 10px;
+  }
+}
+
+@media (max-width: 380px) {
+  .wanted-photo {
+    min-height: 196px;
+  }
+
+  .wanted-status {
+    font-size: 26px;
   }
 }
 

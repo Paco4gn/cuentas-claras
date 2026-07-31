@@ -228,6 +228,7 @@ const db = new CuentaDb()
 const sessionKey = 'cuentas-claras-session'
 const publicQrStoragePrefix = 'cuentas-claras-public-qr-'
 const publicQrPhotoMaxLength = 7000
+const publicQrDoc = (qrId: string) => doc(firestore!, 'publicQrs', qrId)
 const today = new Date().toISOString().slice(0, 10)
 const dayMs = 86_400_000
 const me: ActorId = 'me'
@@ -621,14 +622,21 @@ function compactQrPayload(payload: PublicQrPayload): PublicQrPayload {
   return { ...payload, photo: undefined }
 }
 
-function buildPublicQrUrl(payload: PublicQrPayload) {
+async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string) {
   const url = new URL(import.meta.env.BASE_URL, window.location.origin)
   const qrId = uid()
+  url.searchParams.set('qrid', qrId)
   try {
     localStorage.setItem(`${publicQrStoragePrefix}${qrId}`, JSON.stringify(payload))
-    url.searchParams.set('qrid', qrId)
   } catch {
     // El enlace sigue funcionando con el payload compacto si el navegador no deja guardar.
+  }
+  if (firestore && ownerId) {
+    try {
+      await setDoc(publicQrDoc(qrId), cleanForFirestore({ ...payload, ownerId, createdAt: new Date().toISOString() }))
+    } catch {
+      // Si Firestore no deja guardar el cartel publico, queda el payload compacto dentro del enlace.
+    }
   }
   url.searchParams.set('cobro', JSON.stringify(compactQrPayload(payload)))
   return url.toString()
@@ -663,6 +671,9 @@ function imageDataToPublicQrPhoto(source: string) {
         { width: 360, quality: 0.55 },
         { width: 260, quality: 0.45 },
         { width: 190, quality: 0.38 },
+        { width: 150, quality: 0.32 },
+        { width: 118, quality: 0.28 },
+        { width: 92, quality: 0.24 },
       ]
       const canvas = document.createElement('canvas')
       const context = canvas.getContext('2d')
@@ -790,7 +801,8 @@ function firebaseAuthMessage(error: unknown) {
 }
 
 function App() {
-  const publicQrPayload = useMemo(() => readPublicQrPayload(), [])
+  const initialPublicQrPayload = useMemo(() => readPublicQrPayload(), [])
+  const [publicQrPayload, setPublicQrPayload] = useState<PublicQrPayload | null>(initialPublicQrPayload)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [authMode, setAuthMode] = useState<AuthMode>('register')
   const [authName, setAuthName] = useState('')
@@ -857,6 +869,28 @@ function App() {
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
   const activeLedgerId = activeGroup?.id ?? currentUser?.id ?? ''
   const isSharedLedger = Boolean(activeGroup)
+
+  useEffect(() => {
+    const qrId = new URLSearchParams(window.location.search).get('qrid')
+    if (!qrId || !firestore) return
+    let cancelled = false
+    getDoc(publicQrDoc(qrId)).then((snapshot) => {
+      if (cancelled || !snapshot.exists()) return
+      const cloudPayload = publicQrPayloadFromUnknown(snapshot.data())
+      if (!cloudPayload) return
+      try {
+        localStorage.setItem(`${publicQrStoragePrefix}${qrId}`, JSON.stringify(cloudPayload))
+      } catch {
+        // La tarjeta ya se puede pintar con lo descargado aunque no se pueda cachear.
+      }
+      setPublicQrPayload(cloudPayload)
+    }).catch(() => {
+      // Si no hay lectura publica, se conserva el payload compacto del enlace.
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (isFirebaseConfigured && firebaseAuth && firestore) {
@@ -2181,7 +2215,7 @@ function App() {
       photo: await qrPhotoForPerson(person),
       ownerName,
     }
-    setQrPayload({ ...payload, url: buildPublicQrUrl(payload) })
+    setQrPayload({ ...payload, url: await buildPublicQrUrl(payload, currentUser?.id) })
   }
 
   async function settlePerson(person: Person) {
