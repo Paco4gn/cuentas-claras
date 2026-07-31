@@ -227,6 +227,7 @@ class CuentaDb extends Dexie {
 const db = new CuentaDb()
 const sessionKey = 'cuentas-claras-session'
 const publicQrStoragePrefix = 'cuentas-claras-public-qr-'
+const publicQrPhotoMaxLength = 7000
 const today = new Date().toISOString().slice(0, 10)
 const dayMs = 86_400_000
 const me: ActorId = 'me'
@@ -616,7 +617,7 @@ function publicQrPayloadFromUnknown(value: unknown): PublicQrPayload | null {
 }
 
 function compactQrPayload(payload: PublicQrPayload): PublicQrPayload {
-  if (!payload.photo?.startsWith('data:image/') || payload.photo.length <= 12000) return payload
+  if (!payload.photo?.startsWith('data:image/') || payload.photo.length <= publicQrPhotoMaxLength) return payload
   return { ...payload, photo: undefined }
 }
 
@@ -653,10 +654,50 @@ function readPublicQrPayload(): PublicQrPayload | null {
   }
 }
 
-function qrPhotoForPerson(person: Person) {
+function imageDataToPublicQrPhoto(source: string) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image()
+    image.onerror = () => reject(new Error('image-error'))
+    image.onload = () => {
+      const attempts = [
+        { width: 360, quality: 0.55 },
+        { width: 260, quality: 0.45 },
+        { width: 190, quality: 0.38 },
+      ]
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')
+      if (!context) {
+        reject(new Error('canvas-error'))
+        return
+      }
+
+      for (const attempt of attempts) {
+        const scale = Math.min(1, attempt.width / image.width)
+        canvas.width = Math.max(1, Math.round(image.width * scale))
+        canvas.height = Math.max(1, Math.round(image.height * scale))
+        context.clearRect(0, 0, canvas.width, canvas.height)
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        const dataUrl = canvas.toDataURL('image/jpeg', attempt.quality)
+        if (dataUrl.length <= publicQrPhotoMaxLength || attempt === attempts[attempts.length - 1]) {
+          resolve(dataUrl)
+          return
+        }
+      }
+    }
+    image.src = source
+  })
+}
+
+async function qrPhotoForPerson(person: Person) {
   if (!person.avatar) return undefined
   if (/^https?:\/\//.test(person.avatar)) return person.avatar
-  if (person.avatar.startsWith('data:image/')) return person.avatar
+  if (person.avatar.startsWith('data:image/')) {
+    try {
+      return await imageDataToPublicQrPhoto(person.avatar)
+    } catch {
+      return person.avatar.length <= publicQrPhotoMaxLength ? person.avatar : undefined
+    }
+  }
   return undefined
 }
 
@@ -2124,7 +2165,7 @@ function App() {
     }
   }
 
-  function openPersonQr(person: Person) {
+  async function openPersonQr(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     const ownerName = currentUser?.name || 'Cuentas claras'
     const text = balance > 0
@@ -2137,7 +2178,7 @@ function App() {
       text,
       amount: Math.abs(balance),
       tone: balance > 0 ? 'collect' : balance < 0 ? 'pay' : 'settled',
-      photo: qrPhotoForPerson(person),
+      photo: await qrPhotoForPerson(person),
       ownerName,
     }
     setQrPayload({ ...payload, url: buildPublicQrUrl(payload) })

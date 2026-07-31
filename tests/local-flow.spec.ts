@@ -307,6 +307,9 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await expect(page.getByText(/Kiko, tienes pendiente 11,00/i)).toBeVisible()
   const publicQrHref = await qrDialog.getByRole('link', { name: /Ver tarjeta/i }).getAttribute('href')
   expect(publicQrHref).toContain('cobro=')
+  const publicQrUrl = new URL(publicQrHref!)
+  const compactPayload = JSON.parse(publicQrUrl.searchParams.get('cobro') ?? '{}') as { photo?: string }
+  expect(compactPayload.photo).toMatch(/^data:image\//)
   const publicQrPage = await page.context().newPage()
   await publicQrPage.goto(publicQrHref!)
   await expect(publicQrPage.getByRole('heading', { name: /WANTED/i })).toBeVisible()
@@ -315,6 +318,11 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await expect(publicQrPage.locator('.wanted-reward strong')).toHaveText(/11,00\s*€/)
   await expect(publicQrPage.locator('.wanted-photo img')).toBeVisible()
   await publicQrPage.close()
+  publicQrUrl.searchParams.delete('qrid')
+  const mobileQrPage = await page.context().newPage()
+  await mobileQrPage.goto(publicQrUrl.toString())
+  await expect(mobileQrPage.locator('.wanted-photo img')).toBeVisible()
+  await mobileQrPage.close()
   await qrDialog.getByRole('button', { name: /^Cerrar$/i }).click()
 
   await page.getByLabel('PIN de privacidad').fill('1234')
