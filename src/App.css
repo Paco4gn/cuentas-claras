@@ -1200,11 +1200,12 @@ button:focus-visible {
 
 .public-qr-shell {
   align-items: center;
-  background: #f1eadb;
+  background: #f5f1e7;
   display: grid;
+  justify-items: center;
   min-height: 100svh;
   overflow-x: hidden;
-  padding: clamp(10px, 2vw, 22px);
+  padding: clamp(8px, 1.5vw, 18px);
 }
 
 .public-qr-card {
@@ -1215,10 +1216,10 @@ button:focus-visible {
   box-shadow: none;
   color: #2f1f12;
   justify-self: center;
-  max-width: min(720px, calc(100vw - 20px));
+  max-width: min(620px, calc(100vw - 18px));
   min-width: 0;
   padding: 0;
-  width: min(720px, calc(100vw - 20px));
+  width: min(620px, calc(100vw - 18px));
 }
 
 .public-qr-card.pay {
@@ -1230,43 +1231,47 @@ button:focus-visible {
 }
 
 .wanted-frame {
+  aspect-ratio: 0.68;
+  box-sizing: border-box;
+  container-type: inline-size;
+  display: grid;
+  grid-template-rows: 15fr 42fr 9fr 8fr 3fr 4fr 7fr;
   position: relative;
   background:
-    radial-gradient(ellipse at 48% 15%, rgba(255, 247, 210, 0.44), transparent 36%),
-    radial-gradient(circle at 11% 25%, rgba(104, 61, 26, 0.2), transparent 26%),
-    radial-gradient(circle at 86% 84%, rgba(99, 42, 14, 0.24), transparent 30%),
-    linear-gradient(90deg, rgba(37, 18, 8, 0.18), transparent 6%, transparent 94%, rgba(37, 18, 8, 0.18)),
-    linear-gradient(180deg, rgba(37, 18, 8, 0.1), transparent 15%, transparent 84%, rgba(37, 18, 8, 0.2)),
-    repeating-linear-gradient(92deg, rgba(38, 20, 10, 0.055) 0 1px, transparent 1px 8px),
-    repeating-linear-gradient(0deg, rgba(38, 20, 10, 0.045) 0 1px, transparent 1px 9px),
-    linear-gradient(180deg, #e5cf9a 0%, #d6ad6f 55%, #b7793c 100%);
+    radial-gradient(ellipse at 48% 14%, rgba(255, 252, 219, 0.48), transparent 38%),
+    radial-gradient(circle at 9% 30%, rgba(112, 66, 30, 0.17), transparent 28%),
+    radial-gradient(circle at 92% 80%, rgba(105, 48, 18, 0.19), transparent 34%),
+    linear-gradient(90deg, rgba(51, 30, 15, 0.16), transparent 7%, transparent 93%, rgba(51, 30, 15, 0.16)),
+    linear-gradient(180deg, rgba(51, 30, 15, 0.08), transparent 16%, transparent 84%, rgba(51, 30, 15, 0.18)),
+    repeating-linear-gradient(91deg, rgba(49, 31, 17, 0.045) 0 1px, transparent 1px 10px),
+    repeating-linear-gradient(0deg, rgba(49, 31, 17, 0.035) 0 1px, transparent 1px 11px),
+    linear-gradient(180deg, #d8c294 0%, #caa06a 58%, #a86b34 100%);
   background-blend-mode: screen, multiply, multiply, multiply, multiply, multiply, multiply, normal;
-  border: 5px solid #211409;
+  border: 3px solid #2a1a0d;
   box-shadow:
-    inset 0 0 0 3px rgba(255, 236, 178, 0.78),
-    inset 0 0 0 8px rgba(30, 20, 11, 0.76),
-    inset 0 -92px 105px rgba(74, 33, 14, 0.2),
-    0 28px 84px rgba(0, 0, 0, 0.66);
-  min-height: 0;
-  overflow: visible;
-  padding: clamp(24px, 2.4vw, 36px);
+    inset 0 0 0 2px rgba(255, 237, 188, 0.68),
+    inset 0 0 0 7px rgba(44, 29, 15, 0.46),
+    inset 0 -86px 110px rgba(80, 38, 17, 0.18),
+    0 18px 42px rgba(44, 28, 17, 0.26);
+  min-height: auto;
+  overflow: hidden;
+  padding: 4.4% 5.2% 3.8%;
   text-align: center;
   width: 100%;
-  box-sizing: border-box;
 }
 
 .wanted-frame::before,
 .wanted-frame::after {
   border: 2px solid rgba(45, 28, 14, 0.82);
   content: '';
-  inset: 11px;
+  inset: 2.1%;
   pointer-events: none;
   position: absolute;
 }
 
 .wanted-frame::after {
   border-color: rgba(255, 240, 188, 0.42);
-  inset: 17px;
+  inset: 3.1%;
 }
 
 .wanted-status,
@@ -1283,30 +1288,30 @@ button:focus-visible {
 .wanted-frame h1 {
   color: rgba(39, 20, 10, 0.92);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(92px, 10.25vw, 148px);
+  font-size: clamp(54px, 18.2cqw, 122px);
   font-weight: 900;
   letter-spacing: 0;
-  line-height: 0.76;
-  margin: 0 0 clamp(15px, 1.75vw, 22px);
+  line-height: 0.8;
+  margin: 0;
+  place-self: center;
   position: relative;
   text-shadow:
     0 1px 0 rgba(255, 230, 160, 0.25),
     0 3px 0 rgba(92, 47, 19, 0.12);
   z-index: 1;
-  transform: scaleX(0.9);
+  transform: scaleX(0.88);
   transform-origin: center;
   white-space: nowrap;
 }
 
 .wanted-photo {
-  aspect-ratio: 1.34;
   background:
-    radial-gradient(circle at 50% 36%, rgba(248, 202, 122, 0.26), transparent 34%),
-    linear-gradient(135deg, #c99a55, #b87435);
-  border: 3px solid #221307;
+    radial-gradient(circle at 50% 36%, rgba(255, 232, 171, 0.22), transparent 34%),
+    linear-gradient(135deg, #e2c98b, #b97e3e);
+  border: 2px solid #27180b;
   box-shadow:
-    inset 0 0 0 1px rgba(255, 232, 174, 0.32),
-    0 4px 0 rgba(65, 31, 11, 0.1);
+    inset 0 0 0 1px rgba(255, 238, 191, 0.24),
+    0 3px 0 rgba(65, 31, 11, 0.08);
   display: grid;
   margin: 0 auto;
   overflow: hidden;
@@ -1314,6 +1319,7 @@ button:focus-visible {
   position: relative;
   width: 100%;
   z-index: 1;
+  align-self: stretch;
 }
 
 .wanted-photo img {
@@ -1336,49 +1342,36 @@ button:focus-visible {
 
 .wanted-photo-missing {
   background:
-    radial-gradient(circle at 50% 34%, rgba(242, 197, 113, 0.18), transparent 30%),
-    linear-gradient(135deg, rgba(97, 49, 17, 0.08), rgba(255, 232, 166, 0.04));
+    radial-gradient(circle at 50% 34%, rgba(255, 232, 172, 0.2), transparent 30%),
+    linear-gradient(135deg, rgba(255, 235, 184, 0.08), rgba(82, 39, 15, 0.08));
   height: 100%;
   width: 100%;
 }
 
 .wanted-identity {
+  align-self: center;
   align-items: center;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
-  margin: clamp(12px, 1.4vw, 18px) 0 0;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
   position: relative;
   z-index: 1;
 }
 
-.wanted-identity::before,
-.wanted-identity::after {
-  color: rgba(60, 34, 19, 0.9);
-  content: '}';
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(58px, 5vw, 76px);
-  font-weight: 400;
-  line-height: 1;
-}
-
-.wanted-identity::before {
-  content: '{';
-}
-
 .wanted-status {
-  grid-column: 2;
+  grid-column: 1;
 }
 
 .wanted-name {
   color: rgba(55, 30, 17, 0.9);
   display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(52px, 5.2vw, 76px);
+  font-size: clamp(30px, 8.9cqw, 60px);
   font-weight: 900;
-  grid-column: 2;
+  grid-column: 1;
   letter-spacing: 0;
-  line-height: 0.84;
-  margin: 3px 0 0;
+  line-height: 0.82;
+  margin: 1px 0 0;
   overflow-wrap: anywhere;
   text-transform: uppercase;
   text-shadow: 0 2px 0 rgba(255, 234, 177, 0.2);
@@ -1386,29 +1379,30 @@ button:focus-visible {
 
 .wanted-status {
   border: 0;
-  font-size: clamp(36px, 3.7vw, 54px);
-  line-height: 0.86;
+  font-size: clamp(24px, 6.7cqw, 44px);
+  line-height: 0.84;
   margin: 0;
   padding: 0;
   position: relative;
-  transform: scaleX(0.94);
+  transform: scaleX(0.88);
   transform-origin: center;
   white-space: nowrap;
 }
 
 .wanted-reward {
   align-items: baseline;
+  align-self: center;
   display: flex;
-  gap: clamp(7px, 1vw, 13px);
+  gap: clamp(4px, 1.2cqw, 10px);
   justify-content: center;
-  margin-top: clamp(7px, 1vw, 12px);
+  margin-top: 0;
   position: relative;
   z-index: 1;
 }
 
 .wanted-reward span {
   color: rgba(55, 30, 17, 0.92);
-  font-size: clamp(42px, 4.5vw, 68px);
+  font-size: clamp(24px, 6.2cqw, 44px);
   line-height: 0.9;
 }
 
@@ -1416,7 +1410,7 @@ button:focus-visible {
   color: rgba(39, 20, 10, 0.96);
   display: block;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(60px, 6vw, 90px);
+  font-size: clamp(32px, 9.6cqw, 64px);
   font-weight: 900;
   letter-spacing: 0;
   line-height: 0.86;
@@ -1428,7 +1422,7 @@ button:focus-visible {
 .wanted-reward em {
   color: rgba(55, 30, 17, 0.92);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(42px, 4.5vw, 68px);
+  font-size: clamp(24px, 6.2cqw, 44px);
   font-style: normal;
   font-weight: 900;
   line-height: 0.9;
@@ -1443,13 +1437,14 @@ button:focus-visible {
 }
 
 .wanted-smallprint {
+  align-self: end;
   color: rgba(48, 27, 15, 0.9);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(8px, 0.8vw, 11px);
+  font-size: clamp(6px, 1.45cqw, 10px);
   font-weight: 900;
   line-height: 1.05;
-  margin: clamp(7px, 0.8vw, 10px) auto 0;
-  max-width: 82%;
+  margin: 0 auto;
+  max-width: 88%;
   position: relative;
   text-align: center;
   text-transform: uppercase;
@@ -1457,9 +1452,10 @@ button:focus-visible {
 }
 
 .wanted-scribbles {
+  align-self: center;
   display: grid;
-  gap: clamp(2px, 0.28vw, 4px);
-  margin: clamp(5px, 0.8vw, 8px) auto 0;
+  gap: 2px;
+  margin: 0 auto;
   position: relative;
   width: 58%;
   z-index: 1;
@@ -1482,102 +1478,61 @@ button:focus-visible {
 }
 
 .wanted-footer {
+  align-self: end;
   align-items: end;
-  border-top: 2px solid rgba(41, 22, 11, 0.88);
+  border-top: 1px solid rgba(41, 22, 11, 0.88);
   display: flex;
   gap: 10px;
   justify-content: space-between;
-  margin-top: clamp(7px, 0.9vw, 11px);
-  padding-top: clamp(6px, 0.8vw, 9px);
+  margin-top: 0;
+  padding-top: clamp(3px, 0.7cqw, 6px);
   position: relative;
   z-index: 1;
 }
 
 .wanted-footer span {
   color: rgba(47, 28, 16, 0.86);
-  font-size: clamp(7px, 0.74vw, 10px);
+  font-size: clamp(6px, 1.3cqw, 9px);
   font-weight: 900;
 }
 
 .wanted-footer strong {
   color: rgba(52, 28, 15, 0.92);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(28px, 3.6vw, 48px);
+  font-size: clamp(22px, 6.6cqw, 44px);
   line-height: 0.9;
 }
 
 @media (max-width: 560px) {
   .public-qr-shell {
-    padding: 7px;
+    align-items: start;
+    padding: 8px;
   }
 
   .public-qr-card {
-    width: calc(100vw - 14px);
+    width: min(390px, calc(100vw - 16px));
   }
 
   .wanted-frame {
-    padding: 20px 16px 15px;
+    padding: 4.6% 5.2% 3.8%;
   }
 
   .wanted-frame::before {
-    inset: 11px;
+    inset: 2.1%;
   }
 
   .wanted-frame::after {
-    inset: 16px;
-  }
-
-  .wanted-frame h1 {
-    font-size: clamp(52px, 16.4vw, 66px);
-    transform: scaleX(0.86);
-  }
-
-  .wanted-photo {
-    aspect-ratio: 1.18;
-    min-height: 218px;
-  }
-
-  .wanted-name {
-    font-size: clamp(38px, 11vw, 48px);
-  }
-
-  .wanted-status {
-    font-size: clamp(25px, 7.7vw, 32px);
-    transform: scaleX(0.92);
-    transform-origin: center;
-  }
-
-  .wanted-identity {
-    grid-template-columns: 22px minmax(0, 1fr) 22px;
-  }
-
-  .wanted-identity::before,
-  .wanted-identity::after {
-    font-size: 38px;
-  }
-
-  .wanted-reward strong {
-    font-size: clamp(48px, 17vw, 66px);
-  }
-
-  .wanted-reward span,
-  .wanted-reward em {
-    font-size: clamp(34px, 11vw, 44px);
+    inset: 3.1%;
   }
 
   .wanted-smallprint {
-    font-size: 7px;
     max-width: 92%;
   }
 }
 
 @media (max-width: 380px) {
-  .wanted-photo {
-    min-height: 196px;
-  }
-
-  .wanted-status {
-    font-size: 26px;
+  .public-qr-card {
+    width: calc(100vw - 12px);
   }
 }
 
