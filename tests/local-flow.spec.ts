@@ -145,6 +145,9 @@ test('balance list can hide and restore zero-balance people', async ({ page }) =
   await page.getByLabel('Buscar en saldos').fill('Deuda')
   await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
   await expect(page.getByRole('article').filter({ hasText: 'Cero Oculto' })).toHaveCount(0)
+  await page.getByLabel('Buscar en saldos').fill('')
+  await expect(page.getByRole('heading', { name: /Pendientes criticos/i })).toBeVisible()
+  await expect(page.locator('.risk-panel .risk-person').filter({ hasText: 'Deuda Visible' }).filter({ hasText: '6,00' })).toBeVisible()
 
   await page.getByRole('button', { name: /Ocultar a cero/i }).click()
   await expect(page.getByRole('article').filter({ hasText: 'Deuda Visible' })).toBeVisible()
@@ -181,6 +184,10 @@ test('local split expenses, exports and import work', async ({ page }) => {
   const csvDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /^CSV$/i }).click()
   expect((await csvDownload).suggestedFilename()).toMatch(/cuentas-claras-.*\.csv/)
+
+  const reportDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: /Informe/i }).click()
+  expect((await reportDownload).suggestedFilename()).toMatch(/cuentas-claras-informe-.*\.html/)
 
   assertNoErrors()
 })
@@ -310,6 +317,9 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   const publicQrUrl = new URL(publicQrHref!)
   const compactPayload = JSON.parse(publicQrUrl.searchParams.get('cobro') ?? '{}') as { photo?: string }
   expect(compactPayload.photo).toMatch(/^data:image\//)
+  const posterDownload = page.waitForEvent('download')
+  await qrDialog.getByRole('button', { name: /^PNG$/i }).click()
+  expect((await posterDownload).suggestedFilename()).toMatch(/cartel-kiko\.png/)
   const publicQrPage = await page.context().newPage()
   await publicQrPage.goto(publicQrHref!)
   await expect(publicQrPage.getByRole('heading', { name: /WANTED/i })).toBeVisible()

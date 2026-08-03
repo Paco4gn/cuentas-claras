@@ -922,6 +922,63 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+.risk-list {
+  display: grid;
+  gap: 8px;
+}
+
+.risk-person {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  min-height: 64px;
+  padding: 10px;
+  text-align: left;
+}
+
+.risk-person .avatar {
+  flex-basis: 44px;
+  height: 44px;
+  width: 44px;
+}
+
+.risk-person span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.risk-person strong {
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-person small {
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.risk-person em {
+  color: #047857;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.risk-person:hover {
+  border-color: #99f6e4;
+  box-shadow: 0 12px 26px rgba(15, 118, 110, 0.1);
+  transform: translateY(-1px);
+}
+
 .insight-list,
 .compact-records {
   display: grid;
@@ -2394,6 +2451,22 @@ button:focus-visible {
   .button-row .primary-button,
   .button-row .secondary-button {
     min-height: 46px;
+  }
+
+  .risk-person {
+    grid-template-columns: 48px minmax(0, 1fr);
+    min-height: 74px;
+  }
+
+  .risk-person .avatar {
+    flex-basis: 48px;
+    height: 48px;
+    width: 48px;
+  }
+
+  .risk-person em {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .settle-button {

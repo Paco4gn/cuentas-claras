@@ -598,6 +598,15 @@ function icsEscape(value: string | number) {
     .replace(/\r?\n/g, '\\n')
 }
 
+function htmlEscape(value: string | number) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
 function dateToIcs(date: string) {
   return date.replaceAll('-', '')
 }
@@ -742,6 +751,165 @@ function imageFileToAvatar(file: File) {
     }
     reader.readAsDataURL(file)
   })
+}
+
+function loadPosterImage(source?: string) {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    if (!source) {
+      resolve(null)
+      return
+    }
+
+    const image = new Image()
+    image.crossOrigin = 'anonymous'
+    image.onload = () => resolve(image)
+    image.onerror = () => resolve(null)
+    image.src = source
+  })
+}
+
+function drawPosterText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let line = ''
+
+  words.forEach((word) => {
+    const next = line ? `${line} ${word}` : word
+    if (context.measureText(next).width > maxWidth && line) {
+      lines.push(line)
+      line = word
+    } else {
+      line = next
+    }
+  })
+  if (line) lines.push(line)
+
+  lines.slice(0, 3).forEach((value, index) => context.fillText(value, x, y + index * lineHeight))
+}
+
+async function downloadWantedPoster(payload: QrPayload) {
+  const width = 900
+  const height = 1280
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('canvas-error')
+
+  const paper = context.createLinearGradient(0, 0, 0, height)
+  paper.addColorStop(0, '#f1daa2')
+  paper.addColorStop(0.52, '#d9a15d')
+  paper.addColorStop(1, '#b36f35')
+  context.fillStyle = paper
+  context.fillRect(0, 0, width, height)
+
+  context.globalAlpha = 0.12
+  context.strokeStyle = '#5f3418'
+  context.lineWidth = 1
+  for (let x = 24; x < width; x += 11) {
+    context.beginPath()
+    context.moveTo(x, 0)
+    context.lineTo(x, height)
+    context.stroke()
+  }
+  for (let y = 20; y < height; y += 11) {
+    context.beginPath()
+    context.moveTo(0, y)
+    context.lineTo(width, y)
+    context.stroke()
+  }
+  context.globalAlpha = 1
+
+  context.strokeStyle = '#1b1007'
+  context.lineWidth = 8
+  context.strokeRect(34, 34, width - 68, height - 68)
+  context.lineWidth = 3
+  context.strokeRect(48, 48, width - 96, height - 96)
+  context.strokeRect(62, 62, width - 124, height - 124)
+
+  context.textAlign = 'center'
+  context.fillStyle = '#1f1208'
+  context.font = '700 32px Georgia, serif'
+  context.fillText('SE BUSCA', width / 2, 98)
+  context.font = '900 154px Georgia, serif'
+  context.fillText('WANTED', width / 2, 220)
+
+  const photoX = 88
+  const photoY = 258
+  const photoW = width - 176
+  const photoH = 402
+  context.lineWidth = 5
+  context.strokeStyle = '#1b1007'
+  context.strokeRect(photoX, photoY, photoW, photoH)
+  const image = await loadPosterImage(payload.photo)
+  if (image) {
+    const imageRatio = image.width / image.height
+    const boxRatio = photoW / photoH
+    const drawW = imageRatio > boxRatio ? photoH * imageRatio : photoW
+    const drawH = imageRatio > boxRatio ? photoH : photoW / imageRatio
+    context.save()
+    context.beginPath()
+    context.rect(photoX + 3, photoY + 3, photoW - 6, photoH - 6)
+    context.clip()
+    context.drawImage(image, photoX + (photoW - drawW) / 2, photoY + (photoH - drawH) / 2, drawW, drawH)
+    context.restore()
+  } else {
+    context.fillStyle = '#c9904c'
+    context.fillRect(photoX + 3, photoY + 3, photoW - 6, photoH - 6)
+    context.fillStyle = '#7b3d16'
+    context.font = '900 190px Georgia, serif'
+    context.fillText(payload.title.trim()[0]?.toUpperCase() || 'P', width / 2, photoY + 252)
+  }
+
+  context.strokeStyle = '#1f1208'
+  context.lineWidth = 3
+  context.beginPath()
+  context.moveTo(128, 702)
+  context.lineTo(width - 128, 702)
+  context.stroke()
+
+  context.font = '900 66px Georgia, serif'
+  context.fillStyle = '#1f1208'
+  context.fillText(payload.tone === 'collect' ? 'DEAD OR ALIVE' : payload.tone === 'pay' ? 'PAYMENT NOTICE' : 'ACCOUNT CLOSED', width / 2, 782)
+  context.font = '900 70px Georgia, serif'
+  context.fillText(payload.title.toUpperCase(), width / 2, 852)
+  context.font = '900 18px Georgia, serif'
+  context.fillText(payload.tone === 'settled' ? 'SIN RECOMPENSA' : 'RECOMPENSA', width / 2, 884)
+
+  context.font = '900 104px Georgia, serif'
+  context.fillText(`$ ${formatMoney(payload.amount)} -`, width / 2, 1000)
+  context.beginPath()
+  context.moveTo(88, 1040)
+  context.lineTo(width - 88, 1040)
+  context.stroke()
+
+  context.textAlign = 'left'
+  context.font = '800 23px Georgia, serif'
+  const owner = (payload.ownerName || 'Cuentas claras').toUpperCase()
+  const name = payload.title.toUpperCase()
+  const line = payload.tone === 'collect'
+    ? `${name} adeuda ${formatMoney(payload.amount)} a ${owner}.`
+    : payload.tone === 'pay'
+      ? `${owner} adeuda ${formatMoney(payload.amount)} a ${name}.`
+      : `${name} no tiene cuenta pendiente.`
+  drawPosterText(context, line, 92, 1084, width - 184, 28)
+  context.font = '700 17px Georgia, serif'
+  drawPosterText(context, payload.tone === 'settled' ? 'Cuenta cuadrada y cerrada.' : 'Paga y avisa para cerrar la cuenta.', 92, 1166, width - 184, 24)
+
+  context.textAlign = 'center'
+  context.font = '900 18px Georgia, serif'
+  context.fillText('--- --- === === === === --- ---', width / 2, 1210)
+  context.textAlign = 'right'
+  context.font = '900 46px Georgia, serif'
+  context.fillText('MARINE', width - 88, 1240)
+  context.textAlign = 'left'
+  context.font = '800 16px Georgia, serif'
+  context.fillText(payload.tone === 'settled' ? 'CUENTA CERRADA' : 'CUENTA PENDIENTE', 92, 1240)
+
+  const link = document.createElement('a')
+  link.download = `cartel-${payload.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'cuentas-claras'}.png`
+  link.href = canvas.toDataURL('image/png')
+  link.click()
 }
 
 async function saveManyToFirestore(ledgerId: string, importedPeople: Person[], importedRecords: LedgerRecord[], sharedLedger = false) {
@@ -1120,6 +1288,22 @@ function App() {
   }, [balanceSearch, balances, showZeroBalances, sortedPeople])
   const hiddenZeroBalanceCount = sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) <= 0.009).length
 
+  const debtorRanking = useMemo(
+    () =>
+      sortedPeople
+        .map((person) => {
+          const balance = balances.get(person.id) ?? 0
+          const openRecords = records.filter((record) => record.status !== 'pagado' && recordTouchesPerson(record, person.id))
+          const overdueCount = openRecords.filter((record) => record.dueDate && daysUntil(record.dueDate) < 0).length
+          const pendingCount = openRecords.length
+          return { balance, overdueCount, pendingCount, person }
+        })
+        .filter((item) => item.balance > 0.009 || item.overdueCount > 0)
+        .sort((a, b) => b.overdueCount - a.overdueCount || b.balance - a.balance || b.pendingCount - a.pendingCount)
+        .slice(0, 5),
+    [balances, records, sortedPeople],
+  )
+
   const focusPeople = useMemo(() => sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009).slice(0, 3), [balances, sortedPeople])
 
   const quickPlan = useMemo(() => {
@@ -1180,9 +1364,13 @@ function App() {
     const second = uniquePeople[1]?.name || 'Luis'
     return [
       `${first} me debe 12 por cena vence manana etiqueta comida`,
+      `${first} me debe 20 por gasolina vence manana etiqueta coche`,
       `Le debo 8 a ${second} por taxi`,
       `${first} me pago 5 por gasolina`,
+      `Divide 36 entre ${first}, ${second} y yo por cena pague yo`,
       `Divide 48 entre ${first}, ${second} y yo por compra pague yo`,
+      `Divide 120 entre ${first}, ${second} y yo por hotel pague ${first}`,
+      `${second} me debe 30 por alquiler vence viernes etiqueta casa`,
     ]
   }, [people])
 
@@ -2218,6 +2406,16 @@ function App() {
     setQrPayload({ ...payload, url: await buildPublicQrUrl(payload, currentUser?.id) })
   }
 
+  function openPersonHistory(person: Person, onlyOverdue = false) {
+    setPersonFilter(person.id)
+    setStatusFilter(onlyOverdue ? 'vencidos' : 'todos')
+    setKindFilter('todos')
+    setQuery('')
+    setDateFrom('')
+    setDateTo('')
+    setTab('historial')
+  }
+
   async function settlePerson(person: Person) {
     if (!currentUser || !activeLedgerId) return
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
@@ -2382,6 +2580,83 @@ function App() {
     ].join('\r\n')
     downloadFile(`cuentas-claras-vencimientos-${today}.ics`, content, 'text/calendar')
     setNotice(openDueRecords.length ? `${openDueRecords.length} vencimientos exportados al calendario.` : 'Calendario exportado sin vencimientos pendientes.')
+  }
+
+  function exportReport() {
+    const openRecords = records.filter((record) => record.status !== 'pagado')
+    const topPeople = [...sortedPeople]
+      .map((person) => ({ person, balance: balances.get(person.id) ?? 0 }))
+      .filter((item) => Math.abs(item.balance) > 0.009)
+      .slice(0, 8)
+    const reportRows = filteredRecords.map((record) => {
+      const names = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(', ') || 'Yo'
+      const impact = [...computeSignedByPerson(record).values()].reduce((sum, value) => sum + value, 0)
+      return `<tr>
+        <td>${htmlEscape(record.date)}</td>
+        <td>${htmlEscape(record.dueDate || '')}</td>
+        <td>${htmlEscape(record.title)}</td>
+        <td>${htmlEscape(names)}</td>
+        <td>${htmlEscape(statusLabels[record.status])}</td>
+        <td>${htmlEscape(formatMoney(impact))}</td>
+      </tr>`
+    }).join('')
+    const report = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Informe Cuentas claras</title>
+  <style>
+    body { background:#f5f7fb; color:#0f172a; font-family:Inter,Arial,sans-serif; margin:0; padding:28px; }
+    main { background:white; border:1px solid #dbe3ea; border-radius:12px; margin:auto; max-width:980px; padding:28px; }
+    h1 { margin:0 0 6px; font-size:32px; }
+    h2 { border-bottom:1px solid #e2e8f0; font-size:18px; margin:28px 0 12px; padding-bottom:8px; }
+    .muted { color:#64748b; margin-top:0; }
+    .metrics { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); margin:22px 0; }
+    .metric { border:1px solid #e2e8f0; border-radius:10px; padding:14px; }
+    .metric span { color:#64748b; display:block; font-size:12px; font-weight:800; text-transform:uppercase; }
+    .metric strong { display:block; font-size:24px; margin-top:4px; }
+    table { border-collapse:collapse; width:100%; }
+    th, td { border-bottom:1px solid #e2e8f0; font-size:13px; padding:9px 8px; text-align:left; vertical-align:top; }
+    th { background:#f8fafc; font-size:11px; text-transform:uppercase; }
+    ul { margin:0; padding-left:18px; }
+    li { margin:7px 0; }
+    .positive { color:#047857; }
+    .negative { color:#be123c; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Cuentas claras</h1>
+    <p class="muted">Informe generado el ${htmlEscape(today)} por ${htmlEscape(currentUser?.name || 'usuario')}.</p>
+    <section class="metrics">
+      <div class="metric"><span>Me deben</span><strong class="positive">${htmlEscape(formatMoney(summary.owedToMe))}</strong></div>
+      <div class="metric"><span>Debo</span><strong class="negative">${htmlEscape(formatMoney(summary.owedByMe))}</strong></div>
+      <div class="metric"><span>Saldo neto</span><strong>${htmlEscape(formatMoney(summary.net))}</strong></div>
+      <div class="metric"><span>Abiertos</span><strong>${openRecords.length}</strong></div>
+    </section>
+    <h2>Personas con saldo vivo</h2>
+    <ul>
+      ${topPeople.length ? topPeople.map(({ person, balance }) => `<li><strong>${htmlEscape(person.name)}</strong>: ${htmlEscape(formatMoney(balance))} (${balance > 0 ? 'me debe' : 'le debo'})</li>`).join('') : '<li>Sin saldos vivos.</li>'}
+    </ul>
+    <h2>Cierre optimo</h2>
+    <ul>
+      ${settlementPlan.length ? settlementPlan.map((item) => `<li>${htmlEscape(item.from)} paga ${htmlEscape(formatMoney(item.amount))} a ${htmlEscape(item.to)}</li>`).join('') : '<li>No hace falta mover dinero.</li>'}
+    </ul>
+    <h2>Vencimientos</h2>
+    <ul>
+      ${dueRecords.length ? dueRecords.map((record) => `<li>${htmlEscape(record.dueDate || '')}: ${htmlEscape(record.title)} (${htmlEscape(dueLabel(record))})</li>`).join('') : '<li>No hay vencimientos pendientes.</li>'}
+    </ul>
+    <h2>Movimientos filtrados</h2>
+    <table>
+      <thead><tr><th>Fecha</th><th>Vence</th><th>Concepto</th><th>Persona</th><th>Estado</th><th>Impacto</th></tr></thead>
+      <tbody>${reportRows || '<tr><td colspan="6">Sin movimientos para los filtros actuales.</td></tr>'}</tbody>
+    </table>
+  </main>
+</body>
+</html>`
+    downloadFile(`cuentas-claras-informe-${today}.html`, report, 'text/html')
+    setNotice('Informe HTML descargado.')
   }
 
   async function importData(event: React.ChangeEvent<HTMLInputElement>) {
@@ -2817,6 +3092,7 @@ function App() {
                   reminderHref={reminderHref(person)}
                   onEdit={() => startEditPerson(person)}
                   onFavorite={() => toggleFavoritePerson(person)}
+                  onHistory={() => openPersonHistory(person)}
                   onQuickPayment={() => startQuickPayment(person)}
                   onQr={() => openPersonQr(person)}
                   onSettle={() => settlePerson(person)}
@@ -2850,6 +3126,31 @@ function App() {
               <div className="stat-row">
                 <span>Proximos 3 dias</span>
                 <strong>{dueStats.soon}</strong>
+              </div>
+            </section>
+
+            <section className="panel risk-panel">
+              <div className="section-heading compact">
+                <h2>Pendientes criticos</h2>
+                <BellRing aria-hidden="true" />
+              </div>
+              <div className="risk-list">
+                {debtorRanking.length === 0 && <EmptyState text="No hay personas con deuda pendiente a tu favor." />}
+                {debtorRanking.map(({ balance, overdueCount, pendingCount, person }) => (
+                  <button
+                    className="risk-person"
+                    key={person.id}
+                    onClick={() => openPersonHistory(person, overdueCount > 0)}
+                    type="button"
+                  >
+                    <Avatar name={person.name} src={person.avatar} />
+                    <span>
+                      <strong>{person.name}</strong>
+                      <small>{overdueCount ? `${overdueCount} vencido${overdueCount === 1 ? '' : 's'}` : `${pendingCount} abierto${pendingCount === 1 ? '' : 's'}`}</small>
+                    </span>
+                    <em>{formatMoney(balance)}</em>
+                  </button>
+                ))}
               </div>
             </section>
 
@@ -3685,6 +3986,10 @@ function App() {
               <FileSpreadsheet aria-hidden="true" />
               CSV filtrado
             </button>
+            <button className="secondary-button" type="button" onClick={exportReport}>
+              <FileText aria-hidden="true" />
+              Informe
+            </button>
             <button className="secondary-button" type="button" onClick={exportCalendar}>
               <CalendarClock aria-hidden="true" />
               Calendario
@@ -3739,6 +4044,10 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(qrPayload.text).then(() => setNotice('Mensaje copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
                 <Copy aria-hidden="true" />
                 Mensaje
+              </button>
+              <button className="secondary-button" type="button" onClick={() => downloadWantedPoster(qrPayload).then(() => setNotice('Cartel PNG descargado.')).catch(() => setNotice('No se pudo generar el cartel.'))}>
+                <Download aria-hidden="true" />
+                PNG
               </button>
               <button className="primary-button" type="button" onClick={() => setQrPayload(null)}>
                 <X aria-hidden="true" />
@@ -3846,6 +4155,7 @@ function Metric({
 function PersonBalanceCard({
   balance,
   onFavorite,
+  onHistory,
   onQuickPayment,
   onQr,
   onEdit,
@@ -3855,6 +4165,7 @@ function PersonBalanceCard({
 }: {
   balance: number
   onFavorite: () => void
+  onHistory: () => void
   onQuickPayment: () => void
   onQr: () => void
   onEdit: () => void
@@ -3877,6 +4188,9 @@ function PersonBalanceCard({
         </button>
         <button aria-label="QR de cobro" className="icon-button" type="button" title="QR de cobro" onClick={onQr}>
           <QrCode aria-hidden="true" />
+        </button>
+        <button aria-label="Ver movimientos de la persona" className="icon-button" type="button" title="Movimientos" onClick={onHistory}>
+          <ReceiptText aria-hidden="true" />
         </button>
         <button aria-label="Editar persona" className="icon-button" type="button" title="Editar persona" onClick={onEdit}>
           <Edit3 aria-hidden="true" />
