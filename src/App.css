@@ -1025,6 +1025,78 @@ button:focus-visible {
   margin: 8px 0 12px;
 }
 
+.action-list {
+  display: grid;
+  gap: 9px;
+}
+
+.action-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  padding: 12px;
+  position: relative;
+  text-align: left;
+}
+
+.action-card::before {
+  content: '';
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: 4px;
+}
+
+.action-card.positive::before {
+  background: #0f766e;
+}
+
+.action-card.negative::before {
+  background: #be123c;
+}
+
+.action-card.warn::before {
+  background: #f59e0b;
+}
+
+.action-card.calm::before {
+  background: #2563eb;
+}
+
+.action-card span {
+  display: grid;
+  gap: 4px;
+  padding-left: 4px;
+}
+
+.action-card strong {
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.action-card small {
+  color: var(--text-soft);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.action-card em {
+  color: #0f766e;
+  font-style: normal;
+  font-weight: 900;
+  padding-left: 4px;
+}
+
+.action-card:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
+  transform: translateY(-1px);
+}
+
 .focus-list {
   display: grid;
   gap: 8px;
@@ -1206,6 +1278,167 @@ button:focus-visible {
 .privacy-mode .insight-row strong {
   filter: blur(6px);
   user-select: none;
+}
+
+.person-sheet-modal {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.34);
+  display: grid;
+  inset: 0;
+  padding: 18px;
+  position: fixed;
+  z-index: 45;
+}
+
+.person-sheet {
+  justify-self: center;
+  max-height: min(760px, calc(100svh - 36px));
+  max-width: 560px;
+  overflow: auto;
+  width: 100%;
+}
+
+.person-sheet-hero {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+}
+
+.person-sheet-hero .avatar {
+  flex-basis: 72px;
+  height: 72px;
+  width: 72px;
+}
+
+.person-sheet-hero h2 {
+  color: var(--text-strong);
+  font-size: 26px;
+  margin: 2px 0 0;
+}
+
+.person-sheet-hero p {
+  color: var(--text-soft);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.person-sheet-metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.person-sheet-metrics div {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.person-sheet-metrics span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.person-sheet-metrics strong {
+  color: var(--text-strong);
+  font-size: 20px;
+}
+
+.person-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.person-sheet-actions .secondary-button {
+  flex: 1 1 128px;
+}
+
+.person-sheet-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.person-sheet-tags > span,
+.person-sheet-tags button {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-soft);
+  display: inline-flex;
+  font-weight: 850;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.person-sheet-tags button {
+  cursor: pointer;
+}
+
+.person-sheet-tags strong {
+  color: var(--text-strong);
+}
+
+.person-sheet-records {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.person-sheet-records h3 {
+  color: var(--text-strong);
+  font-size: 18px;
+  margin: 0;
+}
+
+.person-sheet-record {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 58px;
+  padding: 10px;
+  text-align: left;
+}
+
+.person-sheet-record span {
+  display: grid;
+  min-width: 0;
+}
+
+.person-sheet-record strong {
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-sheet-record small {
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.person-sheet-record em {
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .qr-modal {
@@ -2186,6 +2419,25 @@ button:focus-visible {
   padding: 3px 8px;
 }
 
+.tone-picker {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-soft);
+  display: grid;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  text-transform: uppercase;
+}
+
+.tone-picker select {
+  min-height: 38px;
+  text-transform: none;
+}
+
 .insight-row,
 .compact-record {
   box-shadow: 0 5px 14px rgba(15, 23, 42, 0.04);
@@ -2467,6 +2719,34 @@ button:focus-visible {
   .risk-person em {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .person-sheet-modal {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .person-sheet {
+    border-radius: 8px 8px 0 0;
+    max-height: calc(100svh - 22px);
+  }
+
+  .person-sheet-hero {
+    grid-template-columns: 60px minmax(0, 1fr) auto;
+  }
+
+  .person-sheet-hero .avatar {
+    flex-basis: 60px;
+    height: 60px;
+    width: 60px;
+  }
+
+  .person-sheet-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .person-sheet-actions .secondary-button {
+    flex-basis: calc(50% - 6px);
   }
 
   .settle-button {

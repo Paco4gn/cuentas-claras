@@ -79,6 +79,7 @@ type KindFilter = 'todos' | RecordKind
 type RepeatRule = 'none' | 'weekly' | 'monthly'
 type AuthMode = 'login' | 'register' | 'recover'
 type SyncMode = 'cloud' | 'local'
+type ReminderTone = 'suave' | 'directo' | 'ultimo' | 'broma'
 
 interface User {
   id: string
@@ -820,12 +821,30 @@ async function downloadWantedPoster(payload: QrPayload) {
   }
   context.globalAlpha = 1
 
+  const aged = context.createRadialGradient(width / 2, height / 2, 120, width / 2, height / 2, 760)
+  aged.addColorStop(0, 'rgba(255,255,255,0)')
+  aged.addColorStop(0.72, 'rgba(55,30,12,0.12)')
+  aged.addColorStop(1, 'rgba(38,18,8,0.26)')
+  context.fillStyle = aged
+  context.fillRect(0, 0, width, height)
+
   context.strokeStyle = '#1b1007'
   context.lineWidth = 8
   context.strokeRect(34, 34, width - 68, height - 68)
   context.lineWidth = 3
   context.strokeRect(48, 48, width - 96, height - 96)
   context.strokeRect(62, 62, width - 124, height - 124)
+  context.globalAlpha = 0.28
+  context.strokeStyle = '#271406'
+  context.lineWidth = 2
+  for (let index = 0; index < 18; index += 1) {
+    const x = 42 + index * 47
+    context.beginPath()
+    context.moveTo(x, 44)
+    context.lineTo(x + 8, 58)
+    context.stroke()
+  }
+  context.globalAlpha = 1
 
   context.textAlign = 'center'
   context.fillStyle = '#1f1208'
@@ -851,7 +870,9 @@ async function downloadWantedPoster(payload: QrPayload) {
     context.beginPath()
     context.rect(photoX + 3, photoY + 3, photoW - 6, photoH - 6)
     context.clip()
+    context.filter = 'sepia(0.22) contrast(1.08) saturate(0.92)'
     context.drawImage(image, photoX + (photoW - drawW) / 2, photoY + (photoH - drawH) / 2, drawW, drawH)
+    context.filter = 'none'
     context.restore()
   } else {
     context.fillStyle = '#c9904c'
@@ -870,7 +891,7 @@ async function downloadWantedPoster(payload: QrPayload) {
 
   context.font = '900 66px Georgia, serif'
   context.fillStyle = '#1f1208'
-  context.fillText(payload.tone === 'collect' ? 'DEAD OR ALIVE' : payload.tone === 'pay' ? 'PAYMENT NOTICE' : 'ACCOUNT CLOSED', width / 2, 782)
+  context.fillText(payload.tone === 'collect' ? 'DEAD OR ALIVE?' : payload.tone === 'pay' ? 'PAYMENT NOTICE' : 'ACCOUNT CLOSED', width / 2, 782)
   context.font = '900 70px Georgia, serif'
   context.fillText(payload.title.toUpperCase(), width / 2, 852)
   context.font = '900 18px Georgia, serif'
@@ -1027,6 +1048,8 @@ function App() {
   const [balanceSearch, setBalanceSearch] = useState('')
   const [showZeroBalances, setShowZeroBalances] = useState(true)
   const [privacyHidden, setPrivacyHidden] = useState(false)
+  const [reminderTone, setReminderTone] = useState<ReminderTone>('suave')
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null)
   const [pinInput, setPinInput] = useState('')
   const [pinUnlock, setPinUnlock] = useState('')
   const [pinConfigured, setPinConfigured] = useState(false)
@@ -1306,50 +1329,6 @@ function App() {
 
   const focusPeople = useMemo(() => sortedPeople.filter((person) => Math.abs(balances.get(person.id) ?? 0) > 0.009).slice(0, 3), [balances, sortedPeople])
 
-  const quickPlan = useMemo(() => {
-    const overdue = records
-      .filter((record) => record.dueDate && record.status !== 'pagado' && daysUntil(record.dueDate) < 0)
-      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))[0]
-    if (overdue) {
-      return {
-        tone: 'warn',
-        title: 'Hay vencimientos atrasados',
-        copy: `${overdue.title} ${dueLabel(overdue).toLowerCase()}. Conviene revisarlo antes de anadir mas movimientos.`,
-        action: 'vencidos',
-        button: 'Ver vencidos',
-      }
-    }
-
-    const toCollect = sortedPeople.find((person) => (balances.get(person.id) ?? 0) > 0)
-    const toPay = sortedPeople.find((person) => (balances.get(person.id) ?? 0) < 0)
-    if (toCollect && (!toPay || (balances.get(toCollect.id) ?? 0) >= Math.abs(balances.get(toPay.id) ?? 0))) {
-      return {
-        tone: 'positive',
-        title: `Cobrar a ${toCollect.name}`,
-        copy: `Es el saldo pendiente mas alto: ${formatMoney(balances.get(toCollect.id) ?? 0)} a tu favor.`,
-        action: toCollect.name,
-        button: 'Ver movimientos',
-      }
-    }
-    if (toPay) {
-      return {
-        tone: 'negative',
-        title: `Pagar a ${toPay.name}`,
-        copy: `Es tu deuda pendiente mas alta: ${formatMoney(Math.abs(balances.get(toPay.id) ?? 0))}.`,
-        action: toPay.name,
-        button: 'Ver movimientos',
-      }
-    }
-
-    return {
-      tone: 'calm',
-      title: records.length ? 'Todo esta cuadrado' : 'Listo para empezar',
-      copy: records.length ? 'No hay saldos vivos. El historial queda guardado para consultar o exportar.' : 'Anade personas y movimientos para que la app calcule quien debe a quien.',
-      action: '',
-      button: records.length ? 'Abrir movimientos' : 'Crear movimiento',
-    }
-  }, [balances, records, sortedPeople])
-
   const smartPreview = useMemo(() => {
     if (!smartText.trim()) return ''
     const draft = parseSmartText(smartText, people)
@@ -1386,6 +1365,78 @@ function App() {
 
   const recentRecords = records.slice(0, 4)
   const settlementPlan = useMemo(() => settlementPlanFromBalances(balances), [balances])
+  const selectedPerson = selectedPersonId ? people.find((person) => person.id === selectedPersonId) ?? null : null
+  const selectedPersonRecords = useMemo(
+    () => (selectedPerson ? records.filter((record) => recordTouchesPerson(record, selectedPerson.id)) : []),
+    [records, selectedPerson],
+  )
+  const selectedPersonTags = useMemo(() => {
+    const totals = new Map<string, number>()
+    selectedPersonRecords.forEach((record) => {
+      record.tags.forEach((tagValue) => totals.set(tagValue, (totals.get(tagValue) ?? 0) + Math.abs(recordImpact(record))))
+    })
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
+  }, [selectedPersonRecords])
+  const nextActions = useMemo(() => {
+    const actions: Array<{ id: string; tone: 'positive' | 'negative' | 'warn' | 'calm'; title: string; copy: string; button: string; personId?: string }> = []
+    const overdue = records
+      .filter((record) => record.dueDate && record.status !== 'pagado' && daysUntil(record.dueDate) < 0)
+      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))[0]
+    if (overdue) {
+      actions.push({
+        id: 'overdue',
+        tone: 'warn',
+        title: 'Revisar vencidos',
+        copy: `${overdue.title} ${dueLabel(overdue).toLowerCase()}. Primero mira eso y decide si recordar o liquidar.`,
+        button: 'Abrir vencidos',
+      })
+    }
+
+    if (debtorRanking[0]) {
+      actions.push({
+        id: 'collect',
+        tone: 'positive',
+        title: `Cobrar a ${debtorRanking[0].person.name}`,
+        copy: `Saldo a tu favor: ${formatMoney(debtorRanking[0].balance)}. Puedes mandar WhatsApp, QR o abrir su ficha.`,
+        button: 'Abrir ficha',
+        personId: debtorRanking[0].person.id,
+      })
+    }
+
+    const toPay = sortedPeople.find((person) => (balances.get(person.id) ?? 0) < -0.009)
+    if (toPay) {
+      actions.push({
+        id: 'pay',
+        tone: 'negative',
+        title: `Pagar a ${toPay.name}`,
+        copy: `Tienes pendiente ${formatMoney(Math.abs(balances.get(toPay.id) ?? 0))}. Dejalo cerrado cuando hagas el pago.`,
+        button: 'Preparar pago',
+        personId: toPay.id,
+      })
+    }
+
+    if (settlementPlan.length) {
+      actions.push({
+        id: 'settlement',
+        tone: 'calm',
+        title: 'Cerrar con minimos pagos',
+        copy: `${settlementPlan.length} movimiento${settlementPlan.length === 1 ? '' : 's'} bastan para cuadrarlo todo.`,
+        button: 'Ver cierre',
+      })
+    }
+
+    if (!actions.length) {
+      actions.push({
+        id: records.length ? 'history' : 'new',
+        tone: 'calm',
+        title: records.length ? 'Todo esta cuadrado' : 'Crear primer movimiento',
+        copy: records.length ? 'No hay saldos vivos. Puedes consultar o exportar los movimientos.' : 'Anade una persona o dicta un gasto para empezar.',
+        button: records.length ? 'Ver movimientos' : 'Nuevo movimiento',
+      })
+    }
+
+    return actions.slice(0, 3)
+  }, [balances, debtorRanking, records, settlementPlan.length, sortedPeople])
   const monthlyStats = useMemo(() => {
     const months = new Map<string, { month: string; plus: number; minus: number; net: number }>()
     records.forEach((record) => {
@@ -1412,20 +1463,31 @@ function App() {
   const owedByMePercent = exposureTotal ? 100 - owedToMePercent : 50
   const paidRate = records.length ? Math.round((summary.paidCount / records.length) * 100) : 0
 
-  function openQuickPlan() {
-    if (quickPlan.action === 'vencidos') {
+  function openNextAction(action: { id: string; personId?: string }) {
+    const targetPerson = action.personId ? people.find((person) => person.id === action.personId) : null
+    if (action.id === 'overdue') {
       setStatusFilter('vencidos')
+      setPersonFilter('todos')
       setQuery('')
       setTab('historial')
       return
     }
-    if (quickPlan.action) {
+    if (action.id === 'collect' && targetPerson) {
+      setSelectedPersonId(targetPerson.id)
+      return
+    }
+    if (action.id === 'pay' && targetPerson) {
+      startQuickPayment(targetPerson)
+      return
+    }
+    if (action.id === 'settlement') {
       setStatusFilter('todos')
-      setQuery(quickPlan.action)
+      setPersonFilter('todos')
+      setQuery('')
       setTab('historial')
       return
     }
-    setTab(records.length ? 'historial' : 'nuevo')
+    setTab(action.id === 'new' ? 'nuevo' : 'historial')
   }
 
   async function refreshData(ledgerId = activeLedgerId) {
@@ -2454,10 +2516,20 @@ function App() {
   function reminderHref(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     if (balance === 0) return ''
-    const text =
-      balance > 0
-        ? `Hola ${person.name}, en Cuentas claras me sale pendiente ${formatMoney(balance)}. Cuando puedas lo cuadramos.`
-        : `Hola ${person.name}, en Cuentas claras me sale que te debo ${formatMoney(Math.abs(balance))}. Dime como prefieres que lo cuadre.`
+    const amountText = formatMoney(Math.abs(balance))
+    const collectMessages: Record<ReminderTone, string> = {
+      suave: `Hola ${person.name}, me sale pendiente ${amountText} en Cuentas claras. Cuando puedas lo cuadramos.`,
+      directo: `${person.name}, queda pendiente ${amountText}. Avisame cuando lo pagues y lo cierro en Cuentas claras.`,
+      ultimo: `${person.name}, ultimo aviso de Cuentas claras: siguen pendientes ${amountText}. Necesito dejarlo cerrado.`,
+      broma: `${person.name}, Cuentas claras dice que esos ${amountText} siguen vivos. Rescatemos esa deuda antes de que se haga famosa.`,
+    }
+    const payMessages: Record<ReminderTone, string> = {
+      suave: `Hola ${person.name}, me sale que te debo ${amountText}. Dime como prefieres que te lo pase.`,
+      directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te lo cuadro y lo marco cerrado.`,
+      ultimo: `${person.name}, tengo apuntado que te debo ${amountText}. Lo dejo pagado y cerrado cuanto antes.`,
+      broma: `${person.name}, Cuentas claras me acusa de deberte ${amountText}. Dime bizum y me declaro culpable.`,
+    }
+    const text = balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
     const normalizedPhone = person.phone.replace(/[^\d+]/g, '')
     const whatsappPhone =
       normalizedPhone.startsWith('+') || normalizedPhone.length !== 9 ? normalizedPhone.replace(/^\+/, '') : `34${normalizedPhone}`
@@ -3093,6 +3165,7 @@ function App() {
                   onEdit={() => startEditPerson(person)}
                   onFavorite={() => toggleFavoritePerson(person)}
                   onHistory={() => openPersonHistory(person)}
+                  onOpenSheet={() => setSelectedPersonId(person.id)}
                   onQuickPayment={() => startQuickPayment(person)}
                   onQr={() => openPersonQr(person)}
                   onSettle={() => settlePerson(person)}
@@ -3127,6 +3200,15 @@ function App() {
                 <span>Proximos 3 dias</span>
                 <strong>{dueStats.soon}</strong>
               </div>
+              <label className="tone-picker">
+                Tono de recordatorio
+                <select value={reminderTone} onChange={(event) => setReminderTone(event.target.value as ReminderTone)}>
+                  <option value="suave">Suave</option>
+                  <option value="directo">Directo</option>
+                  <option value="ultimo">Ultimo aviso</option>
+                  <option value="broma">Broma</option>
+                </select>
+              </label>
             </section>
 
             <section className="panel risk-panel">
@@ -3232,17 +3314,22 @@ function App() {
               </button>
             </section>
 
-            <section className={`panel quick-plan ${quickPlan.tone}`}>
+            <section className="panel action-panel">
               <div className="section-heading compact">
-                <h2>Plan rapido</h2>
-                <CalendarClock aria-hidden="true" />
+                <h2>Que hago ahora</h2>
+                <WandSparkles aria-hidden="true" />
               </div>
-              <strong>{quickPlan.title}</strong>
-              <p>{quickPlan.copy}</p>
-              <button className="secondary-button full-button" type="button" onClick={openQuickPlan}>
-                <Search aria-hidden="true" />
-                {quickPlan.button}
-              </button>
+              <div className="action-list">
+                {nextActions.map((action) => (
+                  <button className={`action-card ${action.tone}`} key={action.id} onClick={() => openNextAction(action)} type="button">
+                    <span>
+                      <strong>{action.title}</strong>
+                      <small>{action.copy}</small>
+                    </span>
+                    <em>{action.button}</em>
+                  </button>
+                ))}
+              </div>
             </section>
 
             <section className="panel">
@@ -3258,11 +3345,7 @@ function App() {
                     <button
                       className="focus-person"
                       key={person.id}
-                      onClick={() => {
-                        setStatusFilter('todos')
-                        setQuery(person.name)
-                        setTab('historial')
-                      }}
+                      onClick={() => setSelectedPersonId(person.id)}
                       type="button"
                     >
                       <Avatar name={person.name} src={person.avatar} />
@@ -4023,6 +4106,122 @@ function App() {
           </div>
         </section>
       )}
+      {selectedPerson && (
+        <div className="person-sheet-modal" role="dialog" aria-modal="true" aria-label={`Ficha de ${selectedPerson.name}`}>
+          <section className="panel person-sheet">
+            <div className="person-sheet-hero">
+              <Avatar name={selectedPerson.name} src={selectedPerson.avatar} />
+              <div>
+                <span className="eyebrow">Ficha de persona</span>
+                <h2>{selectedPerson.name}</h2>
+                <p>{selectedPerson.phone || selectedPerson.email || selectedPerson.notes || 'Sin contacto guardado'}</p>
+              </div>
+              <button className="icon-button" type="button" aria-label="Cerrar ficha" onClick={() => setSelectedPersonId(null)}>
+                <X aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="person-sheet-metrics">
+              <div>
+                <span>Saldo</span>
+                <strong className={(balances.get(selectedPerson.id) ?? 0) >= 0 ? 'amount-positive' : 'amount-negative'}>
+                  {formatMoney(balances.get(selectedPerson.id) ?? 0)}
+                </strong>
+              </div>
+              <div>
+                <span>Abiertos</span>
+                <strong>{selectedPersonRecords.filter((record) => record.status !== 'pagado').length}</strong>
+              </div>
+              <div>
+                <span>Pagados</span>
+                <strong>{selectedPersonRecords.filter((record) => record.status === 'pagado').length}</strong>
+              </div>
+            </div>
+
+            <div className="person-sheet-actions">
+              {reminderHref(selectedPerson) ? (
+                <a className="secondary-button" href={reminderHref(selectedPerson)} rel="noreferrer" target="_blank">
+                  <MessageCircle aria-hidden="true" />
+                  Recordar
+                </a>
+              ) : (
+                <button className="secondary-button" disabled type="button">
+                  <MessageCircle aria-hidden="true" />
+                  Sin contacto
+                </button>
+              )}
+              <button className="secondary-button" type="button" onClick={() => openPersonQr(selectedPerson)}>
+                <QrCode aria-hidden="true" />
+                QR
+              </button>
+              <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
+                setSelectedPersonId(null)
+                startQuickPayment(selectedPerson)
+              }}>
+                <CircleDollarSign aria-hidden="true" />
+                Pago
+              </button>
+              <button className="secondary-button" type="button" onClick={() => {
+                setSelectedPersonId(null)
+                openPersonHistory(selectedPerson)
+              }}>
+                <ReceiptText aria-hidden="true" />
+                Movimientos
+              </button>
+              <button className="secondary-button" type="button" onClick={() => {
+                setSelectedPersonId(null)
+                startEditPerson(selectedPerson)
+              }}>
+                <Edit3 aria-hidden="true" />
+                Editar
+              </button>
+            </div>
+
+            <div className="person-sheet-tags">
+              {selectedPersonTags.length === 0 ? (
+                <span>Sin etiquetas frecuentes</span>
+              ) : (
+                selectedPersonTags.map(([tagValue, total]) => (
+                  <button
+                    key={tagValue}
+                    type="button"
+                    onClick={() => {
+                      setQuery(tagValue)
+                      setPersonFilter(selectedPerson.id)
+                      setSelectedPersonId(null)
+                      setTab('historial')
+                    }}
+                  >
+                    <Tag aria-hidden="true" />
+                    {tagValue}
+                    <strong>{formatMoney(total)}</strong>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="person-sheet-records">
+              <div className="section-heading compact">
+                <h3>Ultimos movimientos</h3>
+                <ReceiptText aria-hidden="true" />
+              </div>
+              {selectedPersonRecords.length === 0 && <EmptyState text="Todavia no hay movimientos con esta persona." />}
+              {selectedPersonRecords.slice(0, 4).map((record) => (
+                <button className="person-sheet-record" type="button" key={record.id} onClick={() => {
+                  setSelectedPersonId(null)
+                  startEditRecord(record)
+                }}>
+                  <span>
+                    <strong>{record.title}</strong>
+                    <small>{[record.date, statusLabels[record.status]].join(' / ')}</small>
+                  </span>
+                  <em className={recordImpact(record) >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(recordImpact(record))}</em>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
       {qrPayload && (
         <div className="qr-modal" role="dialog" aria-modal="true" aria-label="QR de cobro">
           <section className="panel qr-card">
@@ -4156,6 +4355,7 @@ function PersonBalanceCard({
   balance,
   onFavorite,
   onHistory,
+  onOpenSheet,
   onQuickPayment,
   onQr,
   onEdit,
@@ -4166,6 +4366,7 @@ function PersonBalanceCard({
   balance: number
   onFavorite: () => void
   onHistory: () => void
+  onOpenSheet: () => void
   onQuickPayment: () => void
   onQr: () => void
   onEdit: () => void
@@ -4185,6 +4386,9 @@ function PersonBalanceCard({
       <div className="row-actions">
         <button aria-label={person.favorite ? 'Quitar favorito' : 'Marcar favorito'} className={`icon-button ${person.favorite ? 'is-favorite' : ''}`} type="button" title={person.favorite ? 'Quitar favorito' : 'Favorito'} onClick={onFavorite}>
           <Star aria-hidden="true" />
+        </button>
+        <button aria-label="Abrir ficha de persona" className="icon-button" type="button" title="Ficha" onClick={onOpenSheet}>
+          <UserPlus aria-hidden="true" />
         </button>
         <button aria-label="QR de cobro" className="icon-button" type="button" title="QR de cobro" onClick={onQr}>
           <QrCode aria-hidden="true" />
