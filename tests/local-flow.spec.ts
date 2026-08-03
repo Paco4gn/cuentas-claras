@@ -187,6 +187,12 @@ test('local split expenses, exports and import work', async ({ page }) => {
   await page.getByRole('button', { name: /Dividir igual/i }).click()
   await page.getByRole('button', { name: /Guardar movimiento/i }).click()
   await expect(page.locator('body')).toContainText('20,00')
+  await page.getByRole('article').filter({ hasText: 'Ana Split' }).getByLabel('Abrir ficha de persona').click()
+  const anaSheet = page.getByRole('dialog', { name: /Ficha de Ana Split/i })
+  await expect(anaSheet).toBeVisible()
+  await expect(anaSheet.locator('.person-sheet-record').filter({ hasText: 'Compra compartida' }).locator('em')).toHaveText(/10,00\s*€/)
+  await expect(anaSheet.getByRole('button', { name: /Liquidar/i })).toBeVisible()
+  await anaSheet.getByLabel('Cerrar ficha').click()
 
   await page.getByRole('button', { name: /Historial/i }).click()
   const jsonDownload = page.waitForEvent('download')

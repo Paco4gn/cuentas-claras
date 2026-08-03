@@ -1373,10 +1373,12 @@ function App() {
   const selectedPersonTags = useMemo(() => {
     const totals = new Map<string, number>()
     selectedPersonRecords.forEach((record) => {
-      record.tags.forEach((tagValue) => totals.set(tagValue, (totals.get(tagValue) ?? 0) + Math.abs(recordImpact(record))))
+      if (!selectedPerson) return
+      const impact = Math.abs(personRecordImpact(record, selectedPerson.id))
+      record.tags.forEach((tagValue) => totals.set(tagValue, (totals.get(tagValue) ?? 0) + impact))
     })
     return [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
-  }, [selectedPersonRecords])
+  }, [selectedPerson, selectedPersonRecords])
   const nextActions = useMemo(() => {
     const actions: Array<{ id: string; tone: 'positive' | 'negative' | 'warn' | 'calm'; title: string; copy: string; button: string; personId?: string }> = []
     const overdue = records
@@ -4150,7 +4152,10 @@ function App() {
                   Sin contacto
                 </button>
               )}
-              <button className="secondary-button" type="button" onClick={() => openPersonQr(selectedPerson)}>
+              <button className="secondary-button" type="button" onClick={() => {
+                setSelectedPersonId(null)
+                openPersonQr(selectedPerson)
+              }}>
                 <QrCode aria-hidden="true" />
                 QR
               </button>
@@ -4160,6 +4165,13 @@ function App() {
               }}>
                 <CircleDollarSign aria-hidden="true" />
                 Pago
+              </button>
+              <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
+                setSelectedPersonId(null)
+                settlePerson(selectedPerson)
+              }}>
+                <CheckCircle2 aria-hidden="true" />
+                Liquidar
               </button>
               <button className="secondary-button" type="button" onClick={() => {
                 setSelectedPersonId(null)
@@ -4206,18 +4218,21 @@ function App() {
                 <ReceiptText aria-hidden="true" />
               </div>
               {selectedPersonRecords.length === 0 && <EmptyState text="Todavia no hay movimientos con esta persona." />}
-              {selectedPersonRecords.slice(0, 4).map((record) => (
-                <button className="person-sheet-record" type="button" key={record.id} onClick={() => {
-                  setSelectedPersonId(null)
-                  startEditRecord(record)
-                }}>
-                  <span>
-                    <strong>{record.title}</strong>
-                    <small>{[record.date, statusLabels[record.status]].join(' / ')}</small>
-                  </span>
-                  <em className={recordImpact(record) >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(recordImpact(record))}</em>
-                </button>
-              ))}
+              {selectedPersonRecords.slice(0, 4).map((record) => {
+                const impact = personRecordImpact(record, selectedPerson.id)
+                return (
+                  <button className="person-sheet-record" type="button" key={record.id} onClick={() => {
+                    setSelectedPersonId(null)
+                    startEditRecord(record)
+                  }}>
+                    <span>
+                      <strong>{record.title}</strong>
+                      <small>{[record.date, statusLabels[record.status]].join(' / ')}</small>
+                    </span>
+                    <em className={impact >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(impact)}</em>
+                  </button>
+                )
+              })}
             </div>
           </section>
         </div>
@@ -4327,6 +4342,10 @@ function personName(id: ActorId, people: Person[]) {
 
 function recordImpact(record: LedgerRecord) {
   return [...computeSignedByPerson(record).values()].reduce((sum, value) => sum + value, 0)
+}
+
+function personRecordImpact(record: LedgerRecord, personId: string) {
+  return computeSignedByPerson(record).get(personId) ?? 0
 }
 
 function Metric({
