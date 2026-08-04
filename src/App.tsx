@@ -941,17 +941,44 @@ async function downloadWantedPoster(payload: QrPayload) {
   link.click()
 }
 
-async function shareWantedPoster(payload: QrPayload) {
+function whatsappUrl(text: string, phone?: string) {
+  const digits = phone?.replace(/[^\d]/g, '')
+  const target = digits && digits.length >= 9 ? `/${digits}` : ''
+  return `https://wa.me${target}?text=${encodeURIComponent(text)}`
+}
+
+async function copyPosterImage(blob: Blob) {
+  if (!('ClipboardItem' in window) || typeof navigator.clipboard?.write !== 'function') return false
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
-  const text = `${payload.text}\n\nCartel y detalle: ${payload.url}`
+  const text = `${payload.text}\n\nDetalle de la cuenta: ${payload.url}`
   const shareData = { title: 'Cuentas claras', text, files: [file] }
 
-  if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
-    await navigator.share(shareData)
-    return 'shared'
+  const canShareFiles =
+    typeof navigator.share === 'function' &&
+    (typeof navigator.canShare !== 'function' || navigator.canShare(shareData) || navigator.canShare({ files: [file] }))
+  if (canShareFiles) {
+    try {
+      await navigator.share(shareData)
+      return 'shared'
+    } catch {
+      // Si el navegador rechaza adjuntar la imagen, se usa el mejor fallback disponible.
+    }
   }
+
+  const copiedPoster = await copyPosterImage(blob)
+  window.open(whatsappUrl(text, phone), '_blank', 'noopener,noreferrer')
+  if (copiedPoster) return 'clipboard-image'
 
   try {
     await navigator.clipboard?.writeText(text)
@@ -2510,8 +2537,14 @@ function App() {
   async function sharePersonPoster(person: Person) {
     try {
       const payload = await buildPersonQrPayloadWithUrl(person)
-      const result = await shareWantedPoster(payload)
-      setNotice(result === 'shared' ? 'Cartel y mensaje preparados. Elige WhatsApp y pulsa enviar.' : 'Cartel descargado y mensaje copiado para WhatsApp.')
+      const result = await shareWantedPoster(payload, person.phone)
+      setNotice(
+        result === 'shared'
+          ? 'Cartel preparado con imagen. Elige WhatsApp y pulsa enviar.'
+          : result === 'clipboard-image'
+            ? 'WhatsApp abierto. El cartel esta copiado como imagen: pegalo en el chat y envia.'
+            : 'WhatsApp abierto. Cartel descargado y texto copiado para enviarlo junto.',
+      )
     } catch {
       setNotice('No se pudo preparar el cartel para WhatsApp.')
     }
@@ -2565,16 +2598,16 @@ function App() {
   function reminderMessage(person: Person, balance: number, ownerName = currentUser?.name || 'Cuentas claras') {
     const amountText = formatMoney(Math.abs(balance))
     const collectMessages: Record<ReminderTone, string> = {
-      suave: `Buenas ${person.name}, te dejo el recordatorio de Cuentas claras: quedan ${amountText} pendientes. Cuando lo tengas, me avisas y lo cierro.`,
-      directo: `${person.name}, queda pendiente ${amountText}. Te mando el cartel con el importe para que lo tengamos claro; cuando lo pagues lo marco cerrado.`,
-      ultimo: `${person.name}, necesito cerrar esta cuenta: siguen pendientes ${amountText}. Te dejo el cartel y el enlace para revisarlo.`,
-      broma: `${person.name}, Cuentas claras ha sacado cartel oficial: ${amountText} siguen desaparecidos. Cuando aparezcan, lo dejo cerrado.`,
+      suave: `${person.name}, te dejo el cartel de Cuentas claras: tienes ${amountText} pendiente conmigo. Cuando lo pagues, avisame y lo marco como cerrado.`,
+      directo: `${person.name}, queda pendiente una cuenta de ${amountText} conmigo. Te paso el cartel y el detalle para revisarlo; cuando este pagado, la cierro.`,
+      ultimo: `${person.name}, necesito cerrar esta cuenta. Siguen pendientes ${amountText}; te dejo el cartel con el importe y el enlace al detalle.`,
+      broma: `${person.name}, te ha salido cartel de Cuentas claras: ${amountText} siguen en busca y captura. Cuando aparezcan, lo cierro.`,
     }
     const payMessages: Record<ReminderTone, string> = {
-      suave: `Buenas ${person.name}, en Cuentas claras me sale que te debo ${amountText}. Dime como prefieres que te lo pase y lo cierro.`,
-      directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te mando el cartel para que quede claro y lo marco cerrado cuando te lo pase.`,
-      ultimo: `${person.name}, tengo apuntado que te debo ${amountText}. Lo dejo pagado cuanto antes y cierro la cuenta.`,
-      broma: `${person.name}, Cuentas claras me ha pillado: te debo ${amountText}. Pasame forma de pago y me declaro al dia.`,
+      suave: `${person.name}, en Cuentas claras aparece que te debo ${amountText}. Te paso el cartel con el detalle; dime como prefieres que te lo pague.`,
+      directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te dejo el cartel con el importe y lo marco cerrado en cuanto te lo pase.`,
+      ultimo: `${person.name}, tengo que cerrar esta cuenta: te debo ${amountText}. Te paso el cartel con el detalle y lo dejo pagado cuanto antes.`,
+      broma: `${person.name}, Cuentas claras me ha sacado cartel: te debo ${amountText}. Pasame forma de pago y me pongo al dia.`,
     }
     if (balance === 0) return `${person.name} esta a cero con ${ownerName}. No hay saldo pendiente en Cuentas claras.`
     return balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
@@ -4291,9 +4324,17 @@ function App() {
                 <Link2 aria-hidden="true" />
                 Enlace
               </button>
-              <button className="secondary-button" type="button" onClick={() => navigator.clipboard?.writeText(qrPayload.text).then(() => setNotice('Mensaje copiado.')).catch(() => setNotice('No se pudo copiar.'))}>
-                <Copy aria-hidden="true" />
-                Mensaje
+              <button className="secondary-button" type="button" onClick={() => shareWantedPoster(qrPayload).then((result) => {
+                setNotice(
+                  result === 'shared'
+                    ? 'Cartel preparado con imagen. Elige WhatsApp y pulsa enviar.'
+                    : result === 'clipboard-image'
+                      ? 'WhatsApp abierto. El cartel esta copiado como imagen: pegalo en el chat y envia.'
+                      : 'WhatsApp abierto. Cartel descargado y texto copiado para enviarlo junto.',
+                )
+              }).catch(() => setNotice('No se pudo preparar el cartel.'))}>
+                <MessageCircle aria-hidden="true" />
+                WhatsApp + cartel
               </button>
               <button className="secondary-button" type="button" onClick={() => downloadWantedPoster(qrPayload).then(() => setNotice('Cartel PNG descargado.')).catch(() => setNotice('No se pudo generar el cartel.'))}>
                 <Download aria-hidden="true" />

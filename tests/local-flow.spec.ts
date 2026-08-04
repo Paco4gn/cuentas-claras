@@ -330,7 +330,7 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await page.getByRole('button', { name: /QR de cobro/i }).first().click()
   const qrDialog = page.getByRole('dialog', { name: /QR de cobro/i })
   await expect(qrDialog).toBeVisible()
-  await expect(page.getByText(/quedan 11,00/i)).toBeVisible()
+  await expect(page.getByText(/tienes 11,00\s*€ pendiente/i)).toBeVisible()
   const publicQrHref = await qrDialog.getByRole('link', { name: /Ver tarjeta/i }).getAttribute('href')
   expect(publicQrHref).toContain('cobro=')
   const publicQrUrl = new URL(publicQrHref!)
