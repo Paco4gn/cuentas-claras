@@ -105,6 +105,10 @@ test('settling a person marks open movements as paid and clears the balance', as
 })
 
 test('WhatsApp button opens direct phone chat when the person has a number', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined })
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined })
+  })
   await createLocalAccount(page, 'Paco WhatsApp')
   await addPerson(page, 'Raul Directo', '600123123')
   await addDebt(page, 'Cafe directo', '6')
@@ -117,7 +121,7 @@ test('WhatsApp button opens direct phone chat when the person has a number', asy
 
   const whatsappRequest = page.waitForRequest(/https:\/\/wa\.me\/34600123123/)
   await page.getByLabel('Enviar WhatsApp con cartel').first().click()
-  await whatsappRequest
+  openedWhatsappUrl = (await whatsappRequest).url()
 
   const message = decodeURIComponent(new URL(openedWhatsappUrl).searchParams.get('text') ?? '')
   expect(openedWhatsappUrl).toContain('https://wa.me/34600123123')
@@ -125,7 +129,55 @@ test('WhatsApp button opens direct phone chat when the person has a number', asy
   expect(openedWhatsappUrl.length).toBeLessThan(900)
   expect(message).toContain('Raul Directo')
   expect(message).toContain('6,00')
-  expect(message).toContain('Ver cartel:')
+  expect(message).not.toContain('http')
+  expect(message).not.toContain('qrid')
+})
+
+test('poster share sends image and text without link when native file sharing is available', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: (data: ShareData) => Boolean(data.files?.length),
+    })
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (data: ShareData) => {
+        const file = data.files?.[0]
+        ;(window as Window & { __sharedPoster?: unknown }).__sharedPoster = {
+          fileCount: data.files?.length ?? 0,
+          fileName: file?.name ?? '',
+          fileType: file?.type ?? '',
+          hasUrl: 'url' in data,
+          text: data.text ?? '',
+          title: data.title ?? '',
+        }
+      },
+    })
+  })
+  await createLocalAccount(page, 'Paco Share')
+  await addPerson(page, 'Raul Foto', '600123123')
+  await addDebt(page, 'Cafe foto', '6')
+
+  await page.getByLabel('Enviar WhatsApp con cartel').first().click()
+  const sharedPoster = await page.waitForFunction(() => (window as Window & { __sharedPoster?: unknown }).__sharedPoster)
+  const shared = await sharedPoster.jsonValue() as {
+    fileCount: number
+    fileName: string
+    fileType: string
+    hasUrl: boolean
+    text: string
+    title: string
+  }
+
+  expect(shared.title).toBe('CazaMorosos')
+  expect(shared.fileCount).toBe(1)
+  expect(shared.fileName).toMatch(/cartel-raul-foto\.png/)
+  expect(shared.fileType).toBe('image/png')
+  expect(shared.hasUrl).toBe(false)
+  expect(shared.text).toContain('Raul Foto')
+  expect(shared.text).toContain('6,00')
+  expect(shared.text).not.toContain('http')
+  expect(shared.text).not.toContain('data:image')
 })
 
 test('quick payment from a person balance creates an editable payment draft', async ({ page }) => {

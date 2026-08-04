@@ -957,17 +957,11 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
-  const text = `${payload.text}\n\nVer cartel: ${payload.url}`
+  const text = payload.text
   const shareData: ShareData = { title: appName, text, files: [file] }
   const copiedText = await copyReminderText(text)
   const targetPhone = phone ?? payload.phone
   const hasDirectPhone = Boolean(normalizeWhatsappPhone(targetPhone))
-
-  if (hasDirectPhone) {
-    const copiedPoster = await copyPosterImage(blob)
-    window.location.href = whatsappUrl(text, targetPhone)
-    return copiedPoster ? 'direct-with-image' : copiedText ? 'direct-with-text' : 'direct'
-  }
 
   const canShareFiles =
     typeof navigator.share === 'function' &&
@@ -976,9 +970,16 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
     try {
       await navigator.share(shareData)
       return 'shared'
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled'
       // Si el navegador rechaza adjuntar la imagen, se usa el mejor fallback disponible.
     }
+  }
+
+  if (hasDirectPhone) {
+    const copiedPoster = await copyPosterImage(blob)
+    window.location.href = whatsappUrl(text, targetPhone)
+    return copiedPoster ? 'direct-with-image' : copiedText ? 'direct-with-text' : 'direct'
   }
 
   const copiedPoster = await copyPosterImage(blob)
@@ -2564,9 +2565,11 @@ function App() {
       const result = await shareWantedPoster(payload, person.phone)
       setNotice(
         result === 'shared'
-          ? 'Cartel enviado a compartir. El texto queda copiado por si WhatsApp no lo pega.'
+          ? 'Hoja de compartir abierta con cartel PNG y texto, sin enlace.'
+          : result === 'cancelled'
+            ? 'Envio cancelado.'
           : result.startsWith('direct')
-            ? 'WhatsApp abierto en su numero con mensaje corto. Si quieres mandar el PNG, usa Compartir cartel o adjuntalo desde Fotos/Archivos.'
+            ? 'WhatsApp directo abierto con texto. Para mandar tambien la foto, iPhone obliga a usar la hoja de compartir.'
           : result.includes('clipboard-image')
             ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
             : result.includes('downloaded')
@@ -4361,9 +4364,11 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => shareWantedPoster(qrPayload).then((result) => {
                 setNotice(
                   result === 'shared'
-                    ? 'Cartel enviado a compartir. El texto queda copiado por si WhatsApp no lo pega.'
+                    ? 'Hoja de compartir abierta con cartel PNG y texto, sin enlace.'
+                    : result === 'cancelled'
+                      ? 'Envio cancelado.'
                     : result.startsWith('direct')
-                      ? 'WhatsApp abierto en su numero con mensaje corto. Si quieres mandar el PNG, usa Compartir cartel o adjuntalo desde Fotos/Archivos.'
+                      ? 'WhatsApp directo abierto con texto. Para mandar tambien la foto, iPhone obliga a usar la hoja de compartir.'
                     : result.includes('clipboard-image')
                       ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
                       : result.includes('downloaded')
