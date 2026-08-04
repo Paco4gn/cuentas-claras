@@ -949,9 +949,18 @@ async function downloadWantedPoster(payload: QrPayload) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+function normalizeWhatsappPhone(phone?: string) {
+  const digits = phone?.replace(/[^\d]/g, '') ?? ''
+  if (!digits) return ''
+  if (digits.startsWith('00') && digits.length > 11) return digits.slice(2)
+  if (digits.length === 9 && /^[6789]/.test(digits)) return `34${digits}`
+  if (digits.length >= 10) return digits
+  return ''
+}
+
 function whatsappUrl(text: string, phone?: string) {
-  const digits = phone?.replace(/[^\d]/g, '')
-  const target = digits && digits.length >= 9 ? `/${digits}` : ''
+  const digits = normalizeWhatsappPhone(phone)
+  const target = digits ? `/${digits}` : ''
   return `https://wa.me${target}?text=${encodeURIComponent(text)}`
 }
 
@@ -981,6 +990,13 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const text = `${payload.text}\n\nDetalle de la cuenta: ${payload.url}`
   const shareData = { title: appName, text, url: payload.url, files: [file] }
   const copiedText = await copyReminderText(text)
+  const hasDirectPhone = Boolean(normalizeWhatsappPhone(phone))
+
+  if (hasDirectPhone) {
+    const copiedPoster = await copyPosterImage(blob)
+    window.location.href = whatsappUrl(text, phone)
+    return copiedPoster ? 'direct-with-image' : copiedText ? 'direct-with-text' : 'direct'
+  }
 
   const canShareFiles =
     typeof navigator.share === 'function' &&
@@ -2556,6 +2572,8 @@ function App() {
       setNotice(
         result === 'shared'
           ? 'Cartel enviado a compartir. El texto tambien queda copiado por si WhatsApp no lo pega.'
+          : result.startsWith('direct')
+            ? 'WhatsApp abierto en su numero. El mensaje va preparado; si quieres cartel, pegalo si se copio o adjuntalo desde PNG.'
           : result.includes('clipboard-image')
             ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
             : result.includes('downloaded')
@@ -4349,6 +4367,8 @@ function App() {
                 setNotice(
                   result === 'shared'
                     ? 'Cartel enviado a compartir. El texto tambien queda copiado por si WhatsApp no lo pega.'
+                    : result.startsWith('direct')
+                      ? 'WhatsApp abierto en su numero. El mensaje va preparado; si quieres cartel, pegalo si se copio o adjuntalo desde PNG.'
                     : result.includes('clipboard-image')
                       ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
                       : result.includes('downloaded')

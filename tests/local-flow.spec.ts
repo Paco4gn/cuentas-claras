@@ -104,6 +104,27 @@ test('settling a person marks open movements as paid and clears the balance', as
   assertNoErrors()
 })
 
+test('WhatsApp button opens direct phone chat when the person has a number', async ({ page }) => {
+  await createLocalAccount(page, 'Paco WhatsApp')
+  await addPerson(page, 'Raul Directo', '600123123')
+  await addDebt(page, 'Cafe directo', '6')
+
+  let openedWhatsappUrl = ''
+  await page.route('https://wa.me/**', (route) => {
+    openedWhatsappUrl = route.request().url()
+    return route.fulfill({ contentType: 'text/html', body: '<main>whatsapp</main>' })
+  })
+
+  const whatsappRequest = page.waitForRequest(/https:\/\/wa\.me\/34600123123/)
+  await page.getByLabel('Enviar WhatsApp con cartel').first().click()
+  await whatsappRequest
+
+  const message = decodeURIComponent(new URL(openedWhatsappUrl).searchParams.get('text') ?? '')
+  expect(openedWhatsappUrl).toContain('https://wa.me/34600123123')
+  expect(message).toContain('Raul Directo')
+  expect(message).toContain('6,00')
+})
+
 test('quick payment from a person balance creates an editable payment draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Quick Pay')
@@ -130,7 +151,7 @@ test('balance list can hide and restore zero-balance people', async ({ page }) =
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Zero Filter')
   await addPerson(page, 'Cero Oculto')
-  await addPerson(page, 'Deuda Visible', '600111222')
+  await addPerson(page, 'Deuda Visible')
   await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
   await page.getByLabel('Dilo o escribelo').fill('Deuda Visible me debe 6 por cafe visible')
   await page.getByRole('button', { name: /Guardar directo/i }).click()
