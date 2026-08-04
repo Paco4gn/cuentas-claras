@@ -1,7 +1,7 @@
 {
-  "name": "Cuentas claras",
-  "short_name": "Cuentas",
-  "description": "Control de deudas, gastos compartidos y pagos.",
+  "name": "CazaMorosos",
+  "short_name": "CazaMorosos",
+  "description": "Control de deudas, morosos, gastos compartidos y pagos.",
   "start_url": "/cuentas-claras/",
   "display": "standalone",
   "background_color": "#f6f7f2",
