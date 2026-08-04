@@ -349,14 +349,15 @@ test('production Firebase receives public payment confirmations and closes them 
     expect(publicQrHref).toContain('qrid=')
 
     const publicPage = await context.newPage()
-    await publicPage.goto(publicQrHref!, { waitUntil: 'networkidle' })
+    await publicPage.goto(publicQrHref!, { waitUntil: 'domcontentloaded' })
     await expect(publicPage.getByRole('heading', { name: /WANTED/i })).toBeVisible({ timeout: 20_000 })
     await publicPage.getByRole('button', { name: /Ya he pagado/i }).click()
     await expect(publicPage.getByRole('button', { name: /Aviso enviado/i })).toBeVisible({ timeout: 20_000 })
     await publicPage.close()
 
-    await expect(page.getByText(/Raul Confirm dice que ha pagado|Raul Confirm avisa que ha pagado/i)).toBeVisible({ timeout: 20_000 })
     await expect(page.getByRole('heading', { name: /Pagos avisados/i })).toBeVisible()
+    await expect(page.locator('.confirmation-card').filter({ hasText: /Raul Confirm avisa que ha pagado/i })).toBeVisible()
+    await qrDialog.getByRole('button', { name: /^Cerrar$/i }).click()
     await page.getByRole('button', { name: /^Aceptar$/i }).click()
     await expect(summaryAmount(page, 'Me deben')).toContainText('0,00', { timeout: 20_000 })
     await expect(page.getByRole('heading', { name: /Pagos avisados/i })).toHaveCount(0)
