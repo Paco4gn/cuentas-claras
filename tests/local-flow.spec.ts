@@ -121,8 +121,11 @@ test('WhatsApp button opens direct phone chat when the person has a number', asy
 
   const message = decodeURIComponent(new URL(openedWhatsappUrl).searchParams.get('text') ?? '')
   expect(openedWhatsappUrl).toContain('https://wa.me/34600123123')
+  expect(openedWhatsappUrl).not.toContain('data:image')
+  expect(openedWhatsappUrl.length).toBeLessThan(900)
   expect(message).toContain('Raul Directo')
   expect(message).toContain('6,00')
+  expect(message).toContain('Ver cartel:')
 })
 
 test('quick payment from a person balance creates an editable payment draft', async ({ page }) => {

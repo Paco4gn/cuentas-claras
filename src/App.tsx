@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import * as QRCode from 'qrcode'
 import Dexie, { type Table } from 'dexie'
 import {
   createUserWithEmailAndPassword,
@@ -194,6 +195,7 @@ interface PublicQrPayload {
 
 interface QrPayload extends PublicQrPayload {
   url: string
+  phone?: string
 }
 
 interface SmartDraft {
@@ -631,15 +633,17 @@ function publicQrPayloadFromUnknown(value: unknown): PublicQrPayload | null {
   }
 }
 
-function compactQrPayload(payload: PublicQrPayload): PublicQrPayload {
+function compactQrPayload(payload: PublicQrPayload, includePhoto = true): PublicQrPayload {
+  if (!includePhoto) return { ...payload, photo: undefined }
   if (!payload.photo?.startsWith('data:image/') || payload.photo.length <= publicQrPhotoMaxLength) return payload
   return { ...payload, photo: undefined }
 }
 
-async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string) {
+async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string, options: { short?: boolean } = {}) {
   const url = new URL(import.meta.env.BASE_URL, window.location.origin)
   const qrId = uid()
   url.searchParams.set('qrid', qrId)
+  let cloudSaved = false
   try {
     localStorage.setItem(`${publicQrStoragePrefix}${qrId}`, JSON.stringify(payload))
   } catch {
@@ -648,11 +652,14 @@ async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string) {
   if (firestore && ownerId) {
     try {
       await setDoc(publicQrDoc(qrId), cleanForFirestore({ ...payload, ownerId, createdAt: new Date().toISOString() }))
+      cloudSaved = true
     } catch {
       // Si Firestore no deja guardar el cartel publico, queda el payload compacto dentro del enlace.
     }
   }
-  url.searchParams.set('cobro', JSON.stringify(compactQrPayload(payload)))
+  if (!options.short || !cloudSaved) {
+    url.searchParams.set('cobro', JSON.stringify(compactQrPayload(payload, !options.short)))
+  }
   return url.toString()
 }
 
@@ -676,52 +683,11 @@ function readPublicQrPayload(): PublicQrPayload | null {
   }
 }
 
-function imageDataToPublicQrPhoto(source: string) {
-  return new Promise<string>((resolve, reject) => {
-    const image = new Image()
-    image.onerror = () => reject(new Error('image-error'))
-    image.onload = () => {
-      const attempts = [
-        { width: 360, quality: 0.55 },
-        { width: 260, quality: 0.45 },
-        { width: 190, quality: 0.38 },
-        { width: 150, quality: 0.32 },
-        { width: 118, quality: 0.28 },
-        { width: 92, quality: 0.24 },
-      ]
-      const canvas = document.createElement('canvas')
-      const context = canvas.getContext('2d')
-      if (!context) {
-        reject(new Error('canvas-error'))
-        return
-      }
-
-      for (const attempt of attempts) {
-        const scale = Math.min(1, attempt.width / image.width)
-        canvas.width = Math.max(1, Math.round(image.width * scale))
-        canvas.height = Math.max(1, Math.round(image.height * scale))
-        context.clearRect(0, 0, canvas.width, canvas.height)
-        context.drawImage(image, 0, 0, canvas.width, canvas.height)
-        const dataUrl = canvas.toDataURL('image/jpeg', attempt.quality)
-        if (dataUrl.length <= publicQrPhotoMaxLength || attempt === attempts[attempts.length - 1]) {
-          resolve(dataUrl)
-          return
-        }
-      }
-    }
-    image.src = source
-  })
-}
-
 async function qrPhotoForPerson(person: Person) {
   if (!person.avatar) return undefined
   if (/^https?:\/\//.test(person.avatar)) return person.avatar
   if (person.avatar.startsWith('data:image/')) {
-    try {
-      return await imageDataToPublicQrPhoto(person.avatar)
-    } catch {
-      return person.avatar.length <= publicQrPhotoMaxLength ? person.avatar : undefined
-    }
+    return person.avatar
   }
   return undefined
 }
@@ -739,7 +705,7 @@ function imageFileToAvatar(file: File) {
       const image = new Image()
       image.onerror = () => reject(new Error('image-error'))
       image.onload = () => {
-        const maxSize = 420
+        const maxSize = 1200
         const scale = Math.min(1, maxSize / Math.max(image.width, image.height))
         const canvas = document.createElement('canvas')
         canvas.width = Math.max(1, Math.round(image.width * scale))
@@ -750,7 +716,7 @@ function imageFileToAvatar(file: File) {
           return
         }
         context.drawImage(image, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.82))
+        resolve(canvas.toDataURL('image/jpeg', 0.92))
       }
       image.src = String(reader.result)
     }
@@ -797,13 +763,17 @@ function posterFilename(payload: PublicQrPayload) {
 }
 
 async function buildWantedPosterDataUrl(payload: QrPayload) {
+  const renderScale = 2
   const width = 900
-  const height = 1280
+  const height = 1350
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  canvas.width = width * renderScale
+  canvas.height = height * renderScale
   const context = canvas.getContext('2d')
   if (!context) throw new Error('canvas-error')
+  context.scale(renderScale, renderScale)
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
 
   const paper = context.createLinearGradient(0, 0, 0, height)
   paper.addColorStop(0, '#f1daa2')
@@ -862,9 +832,9 @@ async function buildWantedPosterDataUrl(payload: QrPayload) {
   context.fillText('WANTED', width / 2, 220)
 
   const photoX = 88
-  const photoY = 258
+  const photoY = 260
   const photoW = width - 176
-  const photoH = 402
+  const photoH = 410
   context.lineWidth = 5
   context.strokeStyle = '#1b1007'
   context.strokeRect(photoX, photoY, photoW, photoH)
@@ -893,23 +863,23 @@ async function buildWantedPosterDataUrl(payload: QrPayload) {
   context.strokeStyle = '#1f1208'
   context.lineWidth = 3
   context.beginPath()
-  context.moveTo(128, 702)
-  context.lineTo(width - 128, 702)
+  context.moveTo(128, 718)
+  context.lineTo(width - 128, 718)
   context.stroke()
 
   context.font = '900 66px Georgia, serif'
   context.fillStyle = '#1f1208'
-  context.fillText(payload.tone === 'collect' ? 'DEAD OR ALIVE?' : payload.tone === 'pay' ? 'PAYMENT NOTICE' : 'ACCOUNT CLOSED', width / 2, 782)
+  context.fillText(payload.tone === 'collect' ? 'DEAD OR ALIVE?' : payload.tone === 'pay' ? 'PAYMENT NOTICE' : 'ACCOUNT CLOSED', width / 2, 800)
   context.font = '900 70px Georgia, serif'
-  context.fillText(payload.title.toUpperCase(), width / 2, 852)
+  context.fillText(payload.title.toUpperCase(), width / 2, 870)
   context.font = '900 18px Georgia, serif'
-  context.fillText(payload.tone === 'settled' ? 'SIN RECOMPENSA' : 'RECOMPENSA', width / 2, 884)
+  context.fillText(payload.tone === 'settled' ? 'SIN RECOMPENSA' : 'RECOMPENSA', width / 2, 902)
 
-  context.font = '900 104px Georgia, serif'
-  context.fillText(`$ ${formatMoney(payload.amount)} -`, width / 2, 1000)
+  context.font = '900 96px Georgia, serif'
+  context.fillText(`$ ${formatMoney(payload.amount)} -`, width / 2, 1010)
   context.beginPath()
-  context.moveTo(88, 1040)
-  context.lineTo(width - 88, 1040)
+  context.moveTo(88, 1052)
+  context.lineTo(width - 88, 1052)
   context.stroke()
 
   context.textAlign = 'left'
@@ -921,19 +891,19 @@ async function buildWantedPosterDataUrl(payload: QrPayload) {
     : payload.tone === 'pay'
       ? `${owner} adeuda ${formatMoney(payload.amount)} a ${name}.`
       : `${name} no tiene cuenta pendiente.`
-  drawPosterText(context, line, 92, 1084, width - 184, 28)
+  drawPosterText(context, line, 92, 1092, width - 184, 28)
   context.font = '700 17px Georgia, serif'
-  drawPosterText(context, payload.tone === 'settled' ? 'Cuenta cuadrada y cerrada.' : 'Paga y avisa para cerrar la cuenta.', 92, 1166, width - 184, 24)
+  drawPosterText(context, payload.tone === 'settled' ? 'Cuenta cuadrada y cerrada.' : 'Paga y avisa para cerrar la cuenta.', 92, 1172, width - 184, 24)
 
   context.textAlign = 'center'
   context.font = '900 18px Georgia, serif'
-  context.fillText('--- --- === === === === --- ---', width / 2, 1210)
+  context.fillText('--- --- === === === === --- ---', width / 2, 1230)
   context.textAlign = 'right'
   context.font = '900 46px Georgia, serif'
-  context.fillText('MARINE', width - 88, 1240)
+  context.fillText('MARINE', width - 88, 1290)
   context.textAlign = 'left'
   context.font = '800 16px Georgia, serif'
-  context.fillText(payload.tone === 'settled' ? 'CUENTA CERRADA' : 'CUENTA PENDIENTE', 92, 1240)
+  context.fillText(payload.tone === 'settled' ? 'CUENTA CERRADA' : 'CUENTA PENDIENTE', 92, 1290)
 
   return canvas.toDataURL('image/png')
 }
@@ -987,14 +957,15 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
-  const text = `${payload.text}\n\nDetalle de la cuenta: ${payload.url}`
-  const shareData = { title: appName, text, url: payload.url, files: [file] }
+  const text = `${payload.text}\n\nVer cartel: ${payload.url}`
+  const shareData: ShareData = { title: appName, text, files: [file] }
   const copiedText = await copyReminderText(text)
-  const hasDirectPhone = Boolean(normalizeWhatsappPhone(phone))
+  const targetPhone = phone ?? payload.phone
+  const hasDirectPhone = Boolean(normalizeWhatsappPhone(targetPhone))
 
   if (hasDirectPhone) {
     const copiedPoster = await copyPosterImage(blob)
-    window.location.href = whatsappUrl(text, phone)
+    window.location.href = whatsappUrl(text, targetPhone)
     return copiedPoster ? 'direct-with-image' : copiedText ? 'direct-with-text' : 'direct'
   }
 
@@ -1011,7 +982,7 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   }
 
   const copiedPoster = await copyPosterImage(blob)
-  window.open(whatsappUrl(text, phone), '_blank', 'noopener,noreferrer')
+  window.open(whatsappUrl(text, targetPhone), '_blank', 'noopener,noreferrer')
   if (copiedPoster) return copiedText ? 'clipboard-image-and-text' : 'clipboard-image'
 
   const url = URL.createObjectURL(blob)
@@ -1145,11 +1116,33 @@ function App() {
   const [pinConfigured, setPinConfigured] = useState(false)
   const [pinLocked, setPinLocked] = useState(false)
   const [qrPayload, setQrPayload] = useState<QrPayload | null>(null)
+  const [qrImageUrl, setQrImageUrl] = useState('')
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
   const activeLedgerId = activeGroup?.id ?? currentUser?.id ?? ''
   const isSharedLedger = Boolean(activeGroup)
+
+  useEffect(() => {
+    if (!qrPayload) {
+      setQrImageUrl('')
+      return
+    }
+    let cancelled = false
+    QRCode.toDataURL(qrPayload.url, {
+      color: { dark: '#0f172a', light: '#ffffff' },
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 440,
+    }).then((dataUrl) => {
+      if (!cancelled) setQrImageUrl(dataUrl)
+    }).catch(() => {
+      if (!cancelled) setQrImageUrl('')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [qrPayload])
 
   useEffect(() => {
     const qrId = new URLSearchParams(window.location.search).get('qrid')
@@ -2555,9 +2548,9 @@ function App() {
     } satisfies PublicQrPayload
   }
 
-  async function buildPersonQrPayloadWithUrl(person: Person) {
+  async function buildPersonQrPayloadWithUrl(person: Person, options: { short?: boolean } = {}) {
     const payload = await buildPersonQrPayload(person)
-    return { ...payload, url: await buildPublicQrUrl(payload, currentUser?.id) }
+    return { ...payload, phone: person.phone, url: await buildPublicQrUrl(payload, currentUser?.id, options) }
   }
 
   async function openPersonQr(person: Person) {
@@ -2567,13 +2560,13 @@ function App() {
 
   async function sharePersonPoster(person: Person) {
     try {
-      const payload = await buildPersonQrPayloadWithUrl(person)
+      const payload = await buildPersonQrPayloadWithUrl(person, { short: Boolean(normalizeWhatsappPhone(person.phone)) })
       const result = await shareWantedPoster(payload, person.phone)
       setNotice(
         result === 'shared'
-          ? 'Cartel enviado a compartir. El texto tambien queda copiado por si WhatsApp no lo pega.'
+          ? 'Cartel enviado a compartir. El texto queda copiado por si WhatsApp no lo pega.'
           : result.startsWith('direct')
-            ? 'WhatsApp abierto en su numero. El mensaje va preparado; si quieres cartel, pegalo si se copio o adjuntalo desde PNG.'
+            ? 'WhatsApp abierto en su numero con mensaje corto. Si quieres mandar el PNG, usa Compartir cartel o adjuntalo desde Fotos/Archivos.'
           : result.includes('clipboard-image')
             ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
             : result.includes('downloaded')
@@ -2633,16 +2626,16 @@ function App() {
   function reminderMessage(person: Person, balance: number, ownerName = currentUser?.name || appName) {
     const amountText = formatMoney(Math.abs(balance))
     const collectMessages: Record<ReminderTone, string> = {
-      suave: `${person.name}, te dejo el cartel de ${appName}: tienes ${amountText} pendiente conmigo. Cuando lo pagues, avisame y lo marco como cerrado.`,
-      directo: `${person.name}, queda pendiente una cuenta de ${amountText} conmigo. Te paso el cartel y el detalle para revisarlo; cuando este pagado, la cierro.`,
-      ultimo: `${person.name}, necesito cerrar esta cuenta. Siguen pendientes ${amountText}; te dejo el cartel con el importe y el enlace al detalle.`,
-      broma: `${person.name}, te ha salido cartel de ${appName}: ${amountText} siguen en busca y captura. Cuando aparezcan, lo cierro.`,
+      suave: `${person.name}, tienes ${amountText} pendiente conmigo. Te paso el cartel con el importe; cuando este pagado, avisame y lo cierro.`,
+      directo: `${person.name}, tenemos pendiente una cuenta de ${amountText}. Revisa el cartel y dime cuando queda pagada.`,
+      ultimo: `${person.name}, necesito cerrar esta cuenta pendiente de ${amountText}. Te envio el cartel y el detalle para dejarlo resuelto.`,
+      broma: `${person.name}, ${appName} te ha puesto cartel: ${amountText} pendiente. Cuando aparezca el pago lo doy por cazado.`,
     }
     const payMessages: Record<ReminderTone, string> = {
-      suave: `${person.name}, en ${appName} aparece que te debo ${amountText}. Te paso el cartel con el detalle; dime como prefieres que te lo pague.`,
-      directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te dejo el cartel con el importe y lo marco cerrado en cuanto te lo pase.`,
-      ultimo: `${person.name}, tengo que cerrar esta cuenta: te debo ${amountText}. Te paso el cartel con el detalle y lo dejo pagado cuanto antes.`,
-      broma: `${person.name}, ${appName} me ha sacado cartel: te debo ${amountText}. Pasame forma de pago y me pongo al dia.`,
+      suave: `${person.name}, tengo pendiente pagarte ${amountText}. Te paso el detalle y dime como prefieres que te lo mande.`,
+      directo: `${person.name}, te debo ${amountText}. Lo dejo apuntado aqui y lo marco cerrado en cuanto te pague.`,
+      ultimo: `${person.name}, tengo que cerrar esta cuenta: te debo ${amountText}. Te paso el detalle para dejarlo resuelto cuanto antes.`,
+      broma: `${person.name}, ${appName} me ha puesto cartel a mi: te debo ${amountText}. Pasame forma de pago y me pongo al dia.`,
     }
     if (balance === 0) return `${person.name} esta a cero con ${ownerName}. No hay saldo pendiente en ${appName}.`
     return balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
@@ -4352,7 +4345,9 @@ function App() {
               <h2>QR de cobro</h2>
               <QrCode aria-hidden="true" />
             </div>
-            <img alt="" src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload.url)}`} />
+            {qrImageUrl
+              ? <img alt="Codigo QR de cobro" src={qrImageUrl} />
+              : <div className="qr-placeholder">Preparando QR...</div>}
             <strong>{qrPayload.title}</strong>
             <p>{qrPayload.text}</p>
             <a className="qr-preview-link" href={qrPayload.url} target="_blank" rel="noreferrer">
@@ -4366,9 +4361,9 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => shareWantedPoster(qrPayload).then((result) => {
                 setNotice(
                   result === 'shared'
-                    ? 'Cartel enviado a compartir. El texto tambien queda copiado por si WhatsApp no lo pega.'
+                    ? 'Cartel enviado a compartir. El texto queda copiado por si WhatsApp no lo pega.'
                     : result.startsWith('direct')
-                      ? 'WhatsApp abierto en su numero. El mensaje va preparado; si quieres cartel, pegalo si se copio o adjuntalo desde PNG.'
+                      ? 'WhatsApp abierto en su numero con mensaje corto. Si quieres mandar el PNG, usa Compartir cartel o adjuntalo desde Fotos/Archivos.'
                     : result.includes('clipboard-image')
                       ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
                       : result.includes('downloaded')

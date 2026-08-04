@@ -1468,6 +1468,22 @@ button:focus-visible {
   width: 220px;
 }
 
+.qr-placeholder {
+  align-items: center;
+  background: white;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text-soft);
+  display: flex;
+  font-size: 13px;
+  font-weight: 800;
+  height: 220px;
+  justify-content: center;
+  margin: 10px auto;
+  padding: 10px;
+  width: 220px;
+}
+
 .qr-card > strong {
   color: var(--text-strong);
   display: block;
@@ -1521,11 +1537,11 @@ button:focus-visible {
 }
 
 .wanted-frame {
-  aspect-ratio: 0.68;
+  aspect-ratio: 2 / 3;
   box-sizing: border-box;
   container-type: inline-size;
   display: grid;
-  grid-template-rows: 15fr 42fr 9fr 8fr 3fr 4fr 7fr;
+  grid-template-rows: 14fr 39fr 10fr 8fr 8fr 4fr 7fr;
   position: relative;
   background:
     radial-gradient(ellipse at 48% 14%, rgba(255, 252, 219, 0.48), transparent 38%),
@@ -1545,7 +1561,7 @@ button:focus-visible {
     0 18px 42px rgba(44, 28, 17, 0.26);
   min-height: auto;
   overflow: hidden;
-  padding: 4.4% 5.2% 3.8%;
+  padding: 4.4% 5.2% 5%;
   text-align: center;
   width: 100%;
 }
@@ -1727,16 +1743,16 @@ button:focus-visible {
 }
 
 .wanted-smallprint {
-  align-self: end;
+  align-self: center;
   color: rgba(48, 27, 15, 0.9);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(6px, 1.45cqw, 10px);
+  font-size: clamp(7px, 1.55cqw, 11px);
   font-weight: 900;
   line-height: 1.05;
   margin: 0 auto;
   max-width: 88%;
   position: relative;
-  text-align: center;
+  text-align: left;
   text-transform: uppercase;
   z-index: 1;
 }
@@ -1768,28 +1784,28 @@ button:focus-visible {
 }
 
 .wanted-footer {
-  align-self: end;
+  align-self: center;
   align-items: end;
   border-top: 1px solid rgba(41, 22, 11, 0.88);
   display: flex;
   gap: 10px;
   justify-content: space-between;
   margin-top: 0;
-  padding-top: clamp(3px, 0.7cqw, 6px);
+  padding-top: clamp(5px, 0.9cqw, 8px);
   position: relative;
   z-index: 1;
 }
 
 .wanted-footer span {
   color: rgba(47, 28, 16, 0.86);
-  font-size: clamp(6px, 1.3cqw, 9px);
+  font-size: clamp(7px, 1.35cqw, 10px);
   font-weight: 900;
 }
 
 .wanted-footer strong {
   color: rgba(52, 28, 15, 0.92);
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(22px, 6.6cqw, 44px);
+  font-size: clamp(20px, 5.8cqw, 38px);
   line-height: 0.9;
 }
 
@@ -1804,7 +1820,7 @@ button:focus-visible {
   }
 
   .wanted-frame {
-    padding: 4.6% 5.2% 3.8%;
+    padding: 4.6% 5.2% 5.2%;
   }
 
   .wanted-frame::before {

@@ -1,4 +1,4 @@
-const cacheName = 'cazamorosos-v3'
+const cacheName = 'cazamorosos-v4'
 const scopeUrl = new URL(self.registration.scope)
 const basePath = scopeUrl.pathname.replace(/\/$/, '')
 const withBase = (path) => `${basePath}${path}`
