@@ -1,4 +1,4 @@
-const cacheName = 'cuentas-claras-v3'
+const cacheName = 'cuentas-claras-v4'
 const scopeUrl = new URL(self.registration.scope)
 const basePath = scopeUrl.pathname.replace(/\/$/, '')
 const withBase = (path) => `${basePath}${path}`
@@ -16,6 +16,10 @@ self.addEventListener('activate', (event) => {
       .then((keys) => Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key)))),
   )
   self.clients.claim()
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
 self.addEventListener('fetch', (event) => {
