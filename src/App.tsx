@@ -945,7 +945,7 @@ async function shareWantedPoster(payload: QrPayload) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
-  const text = `${payload.text}\n${payload.url}`
+  const text = `${payload.text}\n\nCartel y detalle: ${payload.url}`
   const shareData = { title: 'Cuentas claras', text, files: [file] }
 
   if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
@@ -2486,11 +2486,7 @@ function App() {
   async function buildPersonQrPayload(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     const ownerName = currentUser?.name || 'Cuentas claras'
-    const text = balance > 0
-      ? `${person.name}, tienes pendiente ${formatMoney(balance)} con ${ownerName}. Entra para verlo y avisame cuando este pagado.`
-      : balance < 0
-        ? `${ownerName} tiene pendiente pagarte ${formatMoney(Math.abs(balance))}. Esta tarjeta deja la cuenta clara.`
-        : `${person.name} esta a cero: no hay saldo pendiente en Cuentas claras.`
+    const text = reminderMessage(person, balance, ownerName)
     return {
       title: person.name,
       text,
@@ -2515,7 +2511,7 @@ function App() {
     try {
       const payload = await buildPersonQrPayloadWithUrl(person)
       const result = await shareWantedPoster(payload)
-      setNotice(result === 'shared' ? 'Cartel preparado. Elige WhatsApp y pulsa enviar.' : 'Cartel descargado y mensaje copiado para WhatsApp.')
+      setNotice(result === 'shared' ? 'Cartel y mensaje preparados. Elige WhatsApp y pulsa enviar.' : 'Cartel descargado y mensaje copiado para WhatsApp.')
     } catch {
       setNotice('No se pudo preparar el cartel para WhatsApp.')
     }
@@ -2566,29 +2562,22 @@ function App() {
     setTab('nuevo')
   }
 
-  function reminderHref(person: Person) {
-    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
-    if (balance === 0) return ''
+  function reminderMessage(person: Person, balance: number, ownerName = currentUser?.name || 'Cuentas claras') {
     const amountText = formatMoney(Math.abs(balance))
     const collectMessages: Record<ReminderTone, string> = {
-      suave: `Hola ${person.name}, me sale pendiente ${amountText} en Cuentas claras. Cuando puedas lo cuadramos.`,
-      directo: `${person.name}, queda pendiente ${amountText}. Avisame cuando lo pagues y lo cierro en Cuentas claras.`,
-      ultimo: `${person.name}, ultimo aviso de Cuentas claras: siguen pendientes ${amountText}. Necesito dejarlo cerrado.`,
-      broma: `${person.name}, Cuentas claras dice que esos ${amountText} siguen vivos. Rescatemos esa deuda antes de que se haga famosa.`,
+      suave: `Buenas ${person.name}, te dejo el recordatorio de Cuentas claras: quedan ${amountText} pendientes. Cuando lo tengas, me avisas y lo cierro.`,
+      directo: `${person.name}, queda pendiente ${amountText}. Te mando el cartel con el importe para que lo tengamos claro; cuando lo pagues lo marco cerrado.`,
+      ultimo: `${person.name}, necesito cerrar esta cuenta: siguen pendientes ${amountText}. Te dejo el cartel y el enlace para revisarlo.`,
+      broma: `${person.name}, Cuentas claras ha sacado cartel oficial: ${amountText} siguen desaparecidos. Cuando aparezcan, lo dejo cerrado.`,
     }
     const payMessages: Record<ReminderTone, string> = {
-      suave: `Hola ${person.name}, me sale que te debo ${amountText}. Dime como prefieres que te lo pase.`,
-      directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te lo cuadro y lo marco cerrado.`,
-      ultimo: `${person.name}, tengo apuntado que te debo ${amountText}. Lo dejo pagado y cerrado cuanto antes.`,
-      broma: `${person.name}, Cuentas claras me acusa de deberte ${amountText}. Dime bizum y me declaro culpable.`,
+      suave: `Buenas ${person.name}, en Cuentas claras me sale que te debo ${amountText}. Dime como prefieres que te lo pase y lo cierro.`,
+      directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te mando el cartel para que quede claro y lo marco cerrado cuando te lo pase.`,
+      ultimo: `${person.name}, tengo apuntado que te debo ${amountText}. Lo dejo pagado cuanto antes y cierro la cuenta.`,
+      broma: `${person.name}, Cuentas claras me ha pillado: te debo ${amountText}. Pasame forma de pago y me declaro al dia.`,
     }
-    const text = balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
-    const normalizedPhone = person.phone.replace(/[^\d+]/g, '')
-    const whatsappPhone =
-      normalizedPhone.startsWith('+') || normalizedPhone.length !== 9 ? normalizedPhone.replace(/^\+/, '') : `34${normalizedPhone}`
-    if (whatsappPhone) return `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(text)}`
-    if (person.email) return `mailto:${person.email}?subject=${encodeURIComponent('Cuentas claras')}&body=${encodeURIComponent(text)}`
-    return ''
+    if (balance === 0) return `${person.name} esta a cero con ${ownerName}. No hay saldo pendiente en Cuentas claras.`
+    return balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
   }
 
   async function deletePerson(id: string) {
@@ -3214,7 +3203,6 @@ function App() {
                   balance={balances.get(person.id) ?? 0}
                   key={person.id}
                   person={person}
-                  reminderHref={reminderHref(person)}
                   onEdit={() => startEditPerson(person)}
                   onFavorite={() => toggleFavoritePerson(person)}
                   onHistory={() => openPersonHistory(person)}
@@ -4193,30 +4181,19 @@ function App() {
             </div>
 
             <div className="person-sheet-actions">
-              {reminderHref(selectedPerson) ? (
-                <a className="secondary-button" href={reminderHref(selectedPerson)} rel="noreferrer" target="_blank">
-                  <MessageCircle aria-hidden="true" />
-                  Recordar
-                </a>
-              ) : (
-                <button className="secondary-button" disabled type="button">
-                  <MessageCircle aria-hidden="true" />
-                  Sin contacto
-                </button>
-              )}
+              <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
+                setSelectedPersonId(null)
+                sharePersonPoster(selectedPerson)
+              }}>
+                <MessageCircle aria-hidden="true" />
+                WhatsApp + cartel
+              </button>
               <button className="secondary-button" type="button" onClick={() => {
                 setSelectedPersonId(null)
                 openPersonQr(selectedPerson)
               }}>
                 <QrCode aria-hidden="true" />
                 QR
-              </button>
-              <button className="secondary-button" type="button" onClick={() => {
-                setSelectedPersonId(null)
-                sharePersonPoster(selectedPerson)
-              }}>
-                <Paperclip aria-hidden="true" />
-                Cartel WhatsApp
               </button>
               <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
                 setSelectedPersonId(null)
@@ -4440,7 +4417,6 @@ function PersonBalanceCard({
   onEdit,
   onSettle,
   person,
-  reminderHref,
 }: {
   balance: number
   onFavorite: () => void
@@ -4452,7 +4428,6 @@ function PersonBalanceCard({
   onEdit: () => void
   onSettle: () => void
   person: Person
-  reminderHref: string
 }) {
   return (
     <article className="person-card balance-card">
@@ -4473,9 +4448,6 @@ function PersonBalanceCard({
         <button aria-label="QR de cobro" className="icon-button" type="button" title="QR de cobro" onClick={onQr}>
           <QrCode aria-hidden="true" />
         </button>
-        <button aria-label="Enviar cartel por WhatsApp" className="icon-button" type="button" title="Enviar cartel" onClick={onPoster}>
-          <Paperclip aria-hidden="true" />
-        </button>
         <button aria-label="Ver movimientos de la persona" className="icon-button" type="button" title="Movimientos" onClick={onHistory}>
           <ReceiptText aria-hidden="true" />
         </button>
@@ -4485,15 +4457,9 @@ function PersonBalanceCard({
         <button aria-label="Registrar pago rapido" className="icon-button" disabled={balance === 0} type="button" title="Registrar pago" onClick={onQuickPayment}>
           <CircleDollarSign aria-hidden="true" />
         </button>
-        {reminderHref ? (
-          <a aria-label="Recordar pago" className="icon-button" href={reminderHref} rel="noreferrer" target="_blank" title="Recordar pago">
-            <MessageCircle aria-hidden="true" />
-          </a>
-        ) : (
-          <button aria-label="Recordar pago" className="icon-button" disabled type="button" title="Anade telefono o email">
-            <MessageCircle aria-hidden="true" />
-          </button>
-        )}
+        <button aria-label="Enviar WhatsApp con cartel" className="icon-button" disabled={balance === 0} type="button" title="WhatsApp con cartel" onClick={onPoster}>
+          <MessageCircle aria-hidden="true" />
+        </button>
         <button className="secondary-button settle-button" disabled={balance === 0} type="button" onClick={onSettle}>
           <CheckCircle2 aria-hidden="true" />
           Liquidar
