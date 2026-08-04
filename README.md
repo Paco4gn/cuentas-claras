@@ -1,6 +1,6 @@
-# Cuentas claras
+# CazaMorosos
 
-PWA para controlar quien te debe dinero, a quien debes, gastos compartidos, pagos parciales y etiquetas.
+PWA para controlar morosos, quien te debe dinero, a quien debes, gastos compartidos, pagos parciales y etiquetas.
 
 ## Funciones
 

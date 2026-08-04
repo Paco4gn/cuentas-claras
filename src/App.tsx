@@ -258,6 +258,10 @@ const kindLabels: Record<RecordKind, string> = {
   payment: 'Pago',
 }
 
+const appName = 'CazaMorosos'
+const appSlug = 'cazamorosos'
+const legacyAppSlug = 'cuentas-claras'
+
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('es-ES', {
     style: 'currency',
@@ -270,12 +274,12 @@ const uid = () => crypto.randomUUID()
 function makeRecoveryCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   const chars = Array.from(crypto.getRandomValues(new Uint8Array(12))).map((value) => alphabet[value % alphabet.length])
-  return `CC-${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
+  return `CM-${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
 }
 
 function recoveryKitContent(user: User, recoveryCode: string) {
   const payload: RecoveryKitPayload = {
-    app: 'cuentas-claras',
+    app: appSlug,
     type: 'recovery-kit',
     version: 1,
     email: user.email,
@@ -789,7 +793,7 @@ function drawPosterText(context: CanvasRenderingContext2D, text: string, x: numb
 }
 
 function posterFilename(payload: PublicQrPayload) {
-  return `cartel-${payload.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'cuentas-claras'}.png`
+  return `cartel-${payload.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || appSlug}.png`
 }
 
 async function buildWantedPosterDataUrl(payload: QrPayload) {
@@ -910,7 +914,7 @@ async function buildWantedPosterDataUrl(payload: QrPayload) {
 
   context.textAlign = 'left'
   context.font = '800 23px Georgia, serif'
-  const owner = (payload.ownerName || 'Cuentas claras').toUpperCase()
+  const owner = (payload.ownerName || appName).toUpperCase()
   const name = payload.title.toUpperCase()
   const line = payload.tone === 'collect'
     ? `${name} adeuda ${formatMoney(payload.amount)} a ${owner}.`
@@ -962,7 +966,7 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
   const text = `${payload.text}\n\nDetalle de la cuenta: ${payload.url}`
-  const shareData = { title: 'Cuentas claras', text, files: [file] }
+  const shareData = { title: appName, text, files: [file] }
 
   const canShareFiles =
     typeof navigator.share === 'function' &&
@@ -1862,7 +1866,7 @@ function App() {
 
   function downloadRecoveryKit() {
     if (!currentUser || !recoveryCodeToShow) return
-    downloadFile(`cuentas-claras-recuperacion-${currentUser.email}.json`, recoveryKitContent(currentUser, recoveryCodeToShow), 'application/json')
+    downloadFile(`${appSlug}-recuperacion-${currentUser.email}.json`, recoveryKitContent(currentUser, recoveryCodeToShow), 'application/json')
     setNotice('Kit de recuperacion descargado.')
   }
 
@@ -1897,8 +1901,8 @@ function App() {
       const payload = JSON.parse(await file.text()) as RecoveryKitPayload
       const code = payload.recoveryCode?.trim()
       const email = payload.email?.trim().toLowerCase()
-      if (payload.app !== 'cuentas-claras' || payload.type !== 'recovery-kit' || !email || !code) {
-        setAuthError('Ese archivo no parece un kit valido de Cuentas claras.')
+      if (!payload.app || ![appSlug, legacyAppSlug].includes(payload.app) || payload.type !== 'recovery-kit' || !email || !code) {
+        setAuthError(`Ese archivo no parece un kit valido de ${appName}.`)
         return
       }
       setAuthEmail(email)
@@ -2382,7 +2386,7 @@ function App() {
     const peopleText = [...computeSignedByPerson(record).keys()].map((id) => personName(id, people)).join(', ') || 'Yo'
     const text = `${record.title} - ${formatMoney(record.amount)} - ${peopleText} - ${statusLabels[record.status]}`
     try {
-      if (navigator.share) await navigator.share({ title: 'Cuentas claras', text })
+      if (navigator.share) await navigator.share({ title: appName, text })
       else await navigator.clipboard?.writeText(text)
       setNotice('Movimiento compartido.')
     } catch {
@@ -2391,7 +2395,7 @@ function App() {
   }
 
   function settlementText() {
-    if (settlementPlan.length === 0) return 'No hay pagos pendientes para cerrar en Cuentas claras.'
+    if (settlementPlan.length === 0) return `No hay pagos pendientes para cerrar en ${appName}.`
     return settlementPlan
       .map((item) => `${personName(item.from, people)} paga ${formatMoney(item.amount)} a ${personName(item.to, people)}`)
       .join('\n')
@@ -2409,7 +2413,7 @@ function App() {
   async function shareSettlementPlan() {
     const text = settlementText()
     try {
-      if (navigator.share) await navigator.share({ title: 'Cierre de Cuentas claras', text })
+      if (navigator.share) await navigator.share({ title: `Cierre de ${appName}`, text })
       else await navigator.clipboard?.writeText(text)
       setNotice('Plan listo para compartir.')
     } catch {
@@ -2454,7 +2458,7 @@ function App() {
       return
     }
     const due = dueRecords[0]
-    new Notification('Cuentas claras', {
+    new Notification(appName, {
       body: due ? `${due.title}: ${dueLabel(due)}` : 'Notificaciones activadas para tus vencimientos.',
     })
     setNotice('Notificaciones activadas.')
@@ -2498,7 +2502,7 @@ function App() {
   }
 
   function inviteText(group: SharedGroup) {
-    return `Te invito a "${group.name}" en Cuentas claras. Entra en https://paco4gn.github.io/cuentas-claras/ con este email incluido en el grupo: ${group.memberEmails.join(', ')}. Codigo: ${group.inviteCode ?? group.id.slice(0, 8)}`
+    return `Te invito a "${group.name}" en ${appName}. Entra en https://paco4gn.github.io/cuentas-claras/ con este email incluido en el grupo: ${group.memberEmails.join(', ')}. Codigo: ${group.inviteCode ?? group.id.slice(0, 8)}`
   }
 
   async function copyInvite(group: SharedGroup) {
@@ -2512,7 +2516,7 @@ function App() {
 
   async function buildPersonQrPayload(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
-    const ownerName = currentUser?.name || 'Cuentas claras'
+    const ownerName = currentUser?.name || appName
     const text = reminderMessage(person, balance, ownerName)
     return {
       title: person.name,
@@ -2595,21 +2599,21 @@ function App() {
     setTab('nuevo')
   }
 
-  function reminderMessage(person: Person, balance: number, ownerName = currentUser?.name || 'Cuentas claras') {
+  function reminderMessage(person: Person, balance: number, ownerName = currentUser?.name || appName) {
     const amountText = formatMoney(Math.abs(balance))
     const collectMessages: Record<ReminderTone, string> = {
-      suave: `${person.name}, te dejo el cartel de Cuentas claras: tienes ${amountText} pendiente conmigo. Cuando lo pagues, avisame y lo marco como cerrado.`,
+      suave: `${person.name}, te dejo el cartel de ${appName}: tienes ${amountText} pendiente conmigo. Cuando lo pagues, avisame y lo marco como cerrado.`,
       directo: `${person.name}, queda pendiente una cuenta de ${amountText} conmigo. Te paso el cartel y el detalle para revisarlo; cuando este pagado, la cierro.`,
       ultimo: `${person.name}, necesito cerrar esta cuenta. Siguen pendientes ${amountText}; te dejo el cartel con el importe y el enlace al detalle.`,
-      broma: `${person.name}, te ha salido cartel de Cuentas claras: ${amountText} siguen en busca y captura. Cuando aparezcan, lo cierro.`,
+      broma: `${person.name}, te ha salido cartel de ${appName}: ${amountText} siguen en busca y captura. Cuando aparezcan, lo cierro.`,
     }
     const payMessages: Record<ReminderTone, string> = {
-      suave: `${person.name}, en Cuentas claras aparece que te debo ${amountText}. Te paso el cartel con el detalle; dime como prefieres que te lo pague.`,
+      suave: `${person.name}, en ${appName} aparece que te debo ${amountText}. Te paso el cartel con el detalle; dime como prefieres que te lo pague.`,
       directo: `${person.name}, tengo pendiente pagarte ${amountText}. Te dejo el cartel con el importe y lo marco cerrado en cuanto te lo pase.`,
       ultimo: `${person.name}, tengo que cerrar esta cuenta: te debo ${amountText}. Te paso el cartel con el detalle y lo dejo pagado cuanto antes.`,
-      broma: `${person.name}, Cuentas claras me ha sacado cartel: te debo ${amountText}. Pasame forma de pago y me pongo al dia.`,
+      broma: `${person.name}, ${appName} me ha sacado cartel: te debo ${amountText}. Pasame forma de pago y me pongo al dia.`,
     }
-    if (balance === 0) return `${person.name} esta a cero con ${ownerName}. No hay saldo pendiente en Cuentas claras.`
+    if (balance === 0) return `${person.name} esta a cero con ${ownerName}. No hay saldo pendiente en ${appName}.`
     return balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
   }
 
@@ -2659,7 +2663,7 @@ function App() {
   function exportData() {
     if (!currentUser) return
     const payload = JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), people, records }, null, 2)
-    downloadFile(`cuentas-claras-${today}.json`, payload, 'application/json')
+    downloadFile(`${appSlug}-${today}.json`, payload, 'application/json')
   }
 
   function recordsToCsv(sourceRecords: LedgerRecord[]) {
@@ -2686,11 +2690,11 @@ function App() {
   }
 
   function exportCsv() {
-    downloadFile(`cuentas-claras-${today}.csv`, recordsToCsv(records), 'text/csv')
+    downloadFile(`${appSlug}-${today}.csv`, recordsToCsv(records), 'text/csv')
   }
 
   function exportFilteredCsv() {
-    downloadFile(`cuentas-claras-filtrado-${today}.csv`, recordsToCsv(filteredRecords), 'text/csv')
+    downloadFile(`${appSlug}-filtrado-${today}.csv`, recordsToCsv(filteredRecords), 'text/csv')
   }
 
   function exportCalendar() {
@@ -2708,10 +2712,10 @@ function App() {
       ].filter(Boolean).join('\n')
       return [
         'BEGIN:VEVENT',
-        `UID:${record.id}@cuentas-claras`,
+        `UID:${record.id}@${appSlug}`,
         `DTSTAMP:${dateToIcs(today)}T000000Z`,
         `DTSTART;VALUE=DATE:${dateToIcs(record.dueDate ?? record.date)}`,
-        `SUMMARY:${icsEscape(`Cuentas claras: ${record.title}`)}`,
+        `SUMMARY:${icsEscape(`${appName}: ${record.title}`)}`,
         `DESCRIPTION:${icsEscape(description)}`,
         'END:VEVENT',
       ].join('\r\n')
@@ -2719,13 +2723,13 @@ function App() {
     const content = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
-      'PRODID:-//Cuentas Claras//ES',
+      `PRODID:-//${appName}//ES`,
       'CALSCALE:GREGORIAN',
       ...events,
       'END:VCALENDAR',
       '',
     ].join('\r\n')
-    downloadFile(`cuentas-claras-vencimientos-${today}.ics`, content, 'text/calendar')
+    downloadFile(`${appSlug}-vencimientos-${today}.ics`, content, 'text/calendar')
     setNotice(openDueRecords.length ? `${openDueRecords.length} vencimientos exportados al calendario.` : 'Calendario exportado sin vencimientos pendientes.')
   }
 
@@ -2752,7 +2756,7 @@ function App() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Informe Cuentas claras</title>
+  <title>Informe ${appName}</title>
   <style>
     body { background:#f5f7fb; color:#0f172a; font-family:Inter,Arial,sans-serif; margin:0; padding:28px; }
     main { background:white; border:1px solid #dbe3ea; border-radius:12px; margin:auto; max-width:980px; padding:28px; }
@@ -2774,7 +2778,7 @@ function App() {
 </head>
 <body>
   <main>
-    <h1>Cuentas claras</h1>
+    <h1>${appName}</h1>
     <p class="muted">Informe generado el ${htmlEscape(today)} por ${htmlEscape(currentUser?.name || 'usuario')}.</p>
     <section class="metrics">
       <div class="metric"><span>Me deben</span><strong class="positive">${htmlEscape(formatMoney(summary.owedToMe))}</strong></div>
@@ -2802,7 +2806,7 @@ function App() {
   </main>
 </body>
 </html>`
-    downloadFile(`cuentas-claras-informe-${today}.html`, report, 'text/html')
+    downloadFile(`${appSlug}-informe-${today}.html`, report, 'text/html')
     setNotice('Informe HTML descargado.')
   }
 
@@ -2935,7 +2939,11 @@ function App() {
     }
     if ('caches' in window) {
       const cacheKeys = await caches.keys()
-      await Promise.all(cacheKeys.filter((key) => key.startsWith('cuentas-claras-')).map((key) => caches.delete(key)))
+      await Promise.all(
+        cacheKeys
+          .filter((key) => key.startsWith(`${legacyAppSlug}-`) || key.startsWith(`${appSlug}-`))
+          .map((key) => caches.delete(key)),
+      )
     }
     setNotice('App actualizada. Recargo la pagina...')
     window.setTimeout(() => window.location.reload(), 500)
@@ -2963,8 +2971,8 @@ function App() {
           <div className="brand-mark">
             <WalletCards aria-hidden="true" />
           </div>
-          <h1>Cuentas claras</h1>
-          <p>Deudas, gastos compartidos y pagos al dia en tu iPhone.</p>
+          <h1>{appName}</h1>
+          <p>Deudas, morosos, gastos compartidos y pagos al dia en tu iPhone.</p>
           <div className="trust-strip">
             <span>
               <ShieldCheck aria-hidden="true" />
@@ -3092,7 +3100,7 @@ function App() {
           <div className="brand-mark">
             <Lock aria-hidden="true" />
           </div>
-          <h1>Cuentas claras</h1>
+          <h1>{appName}</h1>
           <p>Introduce tu PIN para desbloquear la app.</p>
           <form className="form-grid" onSubmit={(event) => {
             event.preventDefault()
@@ -3119,7 +3127,7 @@ function App() {
       <header className="topbar">
         <div>
           <span className="eyebrow">Hola, {currentUser.name}</span>
-          <h1>Cuentas claras</h1>
+          <h1>{appName}</h1>
           <p className={`sync-pill ${syncMode}`}>{syncMessage} / {activeGroup ? activeGroup.name : 'Personal'}</p>
         </div>
         <div className="topbar-actions">
@@ -4353,7 +4361,7 @@ function App() {
 }
 
 function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
-  const ownerName = payload.ownerName || 'Cuentas claras'
+  const ownerName = payload.ownerName || appName
   const title =
     payload.tone === 'collect'
       ? 'WANTED'

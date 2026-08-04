@@ -198,7 +198,7 @@ test('production Firebase auth, balances, exports and shared groups work', async
     await page.getByRole('button', { name: /Historial/i }).click()
     const jsonDownload = page.waitForEvent('download')
     await page.getByRole('button', { name: /^JSON$/i }).click()
-    expect((await jsonDownload).suggestedFilename()).toMatch(/cuentas-claras-.*\.json/)
+    expect((await jsonDownload).suggestedFilename()).toMatch(/cazamorosos-.*\.json/)
 
     await page.getByRole('button', { name: /Grupos/i }).click()
     await page.getByLabel('Nombre del grupo').fill(groupName)

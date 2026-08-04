@@ -27,7 +27,7 @@ async function createLocalAccount(page: Page, name = 'Paco QA') {
   await page.getByRole('textbox', { name: 'Email' }).fill(email)
   await page.getByLabel('Contrasena').fill('Prueba123')
   await page.getByRole('button', { name: /Crear y entrar/i }).click()
-  await expect(page.getByRole('heading', { name: 'Cuentas claras' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'CazaMorosos' })).toBeVisible()
   return email
 }
 
@@ -198,15 +198,15 @@ test('local split expenses, exports and import work', async ({ page }) => {
   await page.getByRole('button', { name: /Historial/i }).click()
   const jsonDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /^JSON$/i }).click()
-  expect((await jsonDownload).suggestedFilename()).toMatch(/cuentas-claras-.*\.json/)
+  expect((await jsonDownload).suggestedFilename()).toMatch(/cazamorosos-.*\.json/)
 
   const csvDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /^CSV$/i }).click()
-  expect((await csvDownload).suggestedFilename()).toMatch(/cuentas-claras-.*\.csv/)
+  expect((await csvDownload).suggestedFilename()).toMatch(/cazamorosos-.*\.csv/)
 
   const reportDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /Informe/i }).click()
-  expect((await reportDownload).suggestedFilename()).toMatch(/cuentas-claras-informe-.*\.html/)
+  expect((await reportDownload).suggestedFilename()).toMatch(/cazamorosos-informe-.*\.html/)
 
   assertNoErrors()
 })
@@ -291,11 +291,11 @@ test('advanced tools handle favorites, filters, attachments and recurring record
 
   const filteredCsvDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /CSV filtrado/i }).click()
-  expect((await filteredCsvDownload).suggestedFilename()).toMatch(/cuentas-claras-filtrado-.*\.csv/)
+  expect((await filteredCsvDownload).suggestedFilename()).toMatch(/cazamorosos-filtrado-.*\.csv/)
 
   const calendarDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: /Calendario/i }).click()
-  expect((await calendarDownload).suggestedFilename()).toMatch(/cuentas-claras-vencimientos-.*\.ics/)
+  expect((await calendarDownload).suggestedFilename()).toMatch(/cazamorosos-vencimientos-.*\.ics/)
 
   await page.getByRole('button', { name: /Crear siguiente recurrente/i }).click()
   await expect(page.getByText(/Siguiente movimiento recurrente creado/i)).toBeVisible()
@@ -364,7 +364,7 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await expect(page.getByRole('button', { name: /Desbloquear/i })).toBeVisible()
   await page.getByLabel('PIN').fill('1234')
   await page.getByRole('button', { name: /Desbloquear/i }).click()
-  await expect(page.getByRole('heading', { name: 'Cuentas claras' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'CazaMorosos' })).toBeVisible()
   assertNoErrors()
 })
 
@@ -380,7 +380,7 @@ test('local recovery code can reset password', async ({ page }) => {
   await page.getByLabel('Nueva contrasena').fill('Nueva123')
   await page.getByRole('button', { name: /Cambiar y entrar/i }).click()
   await expect(page.getByText(/Contrasena actualizada/i)).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Cuentas claras' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'CazaMorosos' })).toBeVisible()
   assertNoErrors()
 })
 
