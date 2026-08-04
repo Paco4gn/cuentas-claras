@@ -788,7 +788,11 @@ function drawPosterText(context: CanvasRenderingContext2D, text: string, x: numb
   lines.slice(0, 3).forEach((value, index) => context.fillText(value, x, y + index * lineHeight))
 }
 
-async function downloadWantedPoster(payload: QrPayload) {
+function posterFilename(payload: PublicQrPayload) {
+  return `cartel-${payload.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'cuentas-claras'}.png`
+}
+
+async function buildWantedPosterDataUrl(payload: QrPayload) {
   const width = 900
   const height = 1280
   const canvas = document.createElement('canvas')
@@ -927,10 +931,38 @@ async function downloadWantedPoster(payload: QrPayload) {
   context.font = '800 16px Georgia, serif'
   context.fillText(payload.tone === 'settled' ? 'CUENTA CERRADA' : 'CUENTA PENDIENTE', 92, 1240)
 
+  return canvas.toDataURL('image/png')
+}
+
+async function downloadWantedPoster(payload: QrPayload) {
   const link = document.createElement('a')
-  link.download = `cartel-${payload.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'cuentas-claras'}.png`
-  link.href = canvas.toDataURL('image/png')
+  link.download = posterFilename(payload)
+  link.href = await buildWantedPosterDataUrl(payload)
   link.click()
+}
+
+async function shareWantedPoster(payload: QrPayload) {
+  const dataUrl = await buildWantedPosterDataUrl(payload)
+  const blob = await (await fetch(dataUrl)).blob()
+  const file = new File([blob], posterFilename(payload), { type: 'image/png' })
+  const text = `${payload.text}\n${payload.url}`
+  const shareData = { title: 'Cuentas claras', text, files: [file] }
+
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    await navigator.share(shareData)
+    return 'shared'
+  }
+
+  try {
+    await navigator.clipboard?.writeText(text)
+  } catch {
+    // El cartel se descarga aunque no se pueda copiar el texto.
+  }
+  const link = document.createElement('a')
+  link.download = posterFilename(payload)
+  link.href = dataUrl
+  link.click()
+  return 'downloaded'
 }
 
 async function saveManyToFirestore(ledgerId: string, importedPeople: Person[], importedRecords: LedgerRecord[], sharedLedger = false) {
@@ -2451,7 +2483,7 @@ function App() {
     }
   }
 
-  async function openPersonQr(person: Person) {
+  async function buildPersonQrPayload(person: Person) {
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     const ownerName = currentUser?.name || 'Cuentas claras'
     const text = balance > 0
@@ -2459,15 +2491,34 @@ function App() {
       : balance < 0
         ? `${ownerName} tiene pendiente pagarte ${formatMoney(Math.abs(balance))}. Esta tarjeta deja la cuenta clara.`
         : `${person.name} esta a cero: no hay saldo pendiente en Cuentas claras.`
-    const payload: PublicQrPayload = {
+    return {
       title: person.name,
       text,
       amount: Math.abs(balance),
       tone: balance > 0 ? 'collect' : balance < 0 ? 'pay' : 'settled',
       photo: await qrPhotoForPerson(person),
       ownerName,
+    } satisfies PublicQrPayload
+  }
+
+  async function buildPersonQrPayloadWithUrl(person: Person) {
+    const payload = await buildPersonQrPayload(person)
+    return { ...payload, url: await buildPublicQrUrl(payload, currentUser?.id) }
+  }
+
+  async function openPersonQr(person: Person) {
+    const payload = await buildPersonQrPayloadWithUrl(person)
+    setQrPayload(payload)
+  }
+
+  async function sharePersonPoster(person: Person) {
+    try {
+      const payload = await buildPersonQrPayloadWithUrl(person)
+      const result = await shareWantedPoster(payload)
+      setNotice(result === 'shared' ? 'Cartel preparado. Elige WhatsApp y pulsa enviar.' : 'Cartel descargado y mensaje copiado para WhatsApp.')
+    } catch {
+      setNotice('No se pudo preparar el cartel para WhatsApp.')
     }
-    setQrPayload({ ...payload, url: await buildPublicQrUrl(payload, currentUser?.id) })
   }
 
   function openPersonHistory(person: Person, onlyOverdue = false) {
@@ -3168,6 +3219,7 @@ function App() {
                   onFavorite={() => toggleFavoritePerson(person)}
                   onHistory={() => openPersonHistory(person)}
                   onOpenSheet={() => setSelectedPersonId(person.id)}
+                  onPoster={() => sharePersonPoster(person)}
                   onQuickPayment={() => startQuickPayment(person)}
                   onQr={() => openPersonQr(person)}
                   onSettle={() => settlePerson(person)}
@@ -4159,6 +4211,13 @@ function App() {
                 <QrCode aria-hidden="true" />
                 QR
               </button>
+              <button className="secondary-button" type="button" onClick={() => {
+                setSelectedPersonId(null)
+                sharePersonPoster(selectedPerson)
+              }}>
+                <Paperclip aria-hidden="true" />
+                Cartel WhatsApp
+              </button>
               <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
                 setSelectedPersonId(null)
                 startQuickPayment(selectedPerson)
@@ -4375,6 +4434,7 @@ function PersonBalanceCard({
   onFavorite,
   onHistory,
   onOpenSheet,
+  onPoster,
   onQuickPayment,
   onQr,
   onEdit,
@@ -4386,6 +4446,7 @@ function PersonBalanceCard({
   onFavorite: () => void
   onHistory: () => void
   onOpenSheet: () => void
+  onPoster: () => void
   onQuickPayment: () => void
   onQr: () => void
   onEdit: () => void
@@ -4411,6 +4472,9 @@ function PersonBalanceCard({
         </button>
         <button aria-label="QR de cobro" className="icon-button" type="button" title="QR de cobro" onClick={onQr}>
           <QrCode aria-hidden="true" />
+        </button>
+        <button aria-label="Enviar cartel por WhatsApp" className="icon-button" type="button" title="Enviar cartel" onClick={onPoster}>
+          <Paperclip aria-hidden="true" />
         </button>
         <button aria-label="Ver movimientos de la persona" className="icon-button" type="button" title="Movimientos" onClick={onHistory}>
           <ReceiptText aria-hidden="true" />

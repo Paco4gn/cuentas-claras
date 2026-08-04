@@ -352,6 +352,9 @@ test('privacy mode, pin lock and QR collection tools work', async ({ page }) => 
   await expect(mobileQrPage.locator('.wanted-photo img')).toBeVisible()
   await mobileQrPage.close()
   await qrDialog.getByRole('button', { name: /^Cerrar$/i }).click()
+  const posterShareDownload = page.waitForEvent('download')
+  await page.getByLabel('Enviar cartel por WhatsApp').first().click()
+  expect((await posterShareDownload).suggestedFilename()).toMatch(/cartel-kiko\.png/)
 
   await page.getByLabel('PIN de privacidad').fill('1234')
   await page.getByRole('button', { name: /Guardar PIN/i }).click()
