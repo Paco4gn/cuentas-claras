@@ -43,6 +43,19 @@ service cloud.firestore {
         && request.resource.data.tone in ['collect', 'pay', 'settled'];
     }
 
+    function validPaymentConfirmation(userId) {
+      return request.resource.data.ownerId == userId
+        && request.resource.data.qrid is string
+        && exists(/databases/$(database)/documents/publicQrs/$(request.resource.data.qrid))
+        && get(/databases/$(database)/documents/publicQrs/$(request.resource.data.qrid)).data.ownerId == userId
+        && request.resource.data.payerName is string
+        && request.resource.data.payerName.size() > 0
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.message is string
+        && request.resource.data.status == 'pending';
+    }
+
     match /publicQrs/{qrId} {
       allow read: if true;
       allow create, update: if request.auth != null && validPublicQr();
@@ -61,6 +74,14 @@ service cloud.firestore {
       match /records/{recordId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId) && validRecord(userId);
+      }
+
+      match /paymentConfirmations/{confirmationId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if validPaymentConfirmation(userId);
+        allow update: if isOwner(userId)
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.status in ['pending', 'accepted', 'dismissed'];
       }
     }
 

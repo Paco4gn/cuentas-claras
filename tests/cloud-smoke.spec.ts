@@ -77,6 +77,35 @@ async function cleanupCloudUser(email: string, password: string) {
     }
     await deleteCollection(`projects/${projectId}/databases/(default)/documents/users/${session.localId}/persons`)
     await deleteCollection(`projects/${projectId}/databases/(default)/documents/users/${session.localId}/records`)
+    await deleteCollection(`projects/${projectId}/databases/(default)/documents/users/${session.localId}/paymentConfirmations`)
+    const publicQrResponse = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeader },
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [{ collectionId: 'publicQrs' }],
+            where: {
+              fieldFilter: {
+                field: { fieldPath: 'ownerId' },
+                op: 'EQUAL',
+                value: { stringValue: session.localId },
+              },
+            },
+          },
+        }),
+      },
+    )
+    if (publicQrResponse.ok) {
+      const publicQrPayload = (await publicQrResponse.json()) as Array<{ document?: { name?: string } }>
+      await Promise.all(
+        publicQrPayload
+          .map((entry) => entry.document?.name)
+          .filter(Boolean)
+          .map((name) => fetch(`https://firestore.googleapis.com/v1/${name}`, { method: 'DELETE', headers: authHeader })),
+      )
+    }
     await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${session.localId}`, {
       method: 'DELETE',
       headers: authHeader,
@@ -287,6 +316,51 @@ test('production Firebase calculates crossed debts, paid records and split expen
     await page.getByRole('button', { name: /Historial/i }).click()
     await expect(page.getByRole('article').filter({ hasText: 'Pago cerrado que no cuenta' }).getByText('Pagado')).toBeVisible()
     await expect(page.getByRole('article').filter({ hasText: 'compra dividida entre tres' })).toBeVisible()
+    expect(consoleErrors).toEqual([])
+  } finally {
+    await context.close().catch(() => undefined)
+    await cleanupCloudUser(email, password)
+  }
+})
+
+test('production Firebase receives public payment confirmations and closes them manually', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const email = `cloud-confirm-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`
+  const password = 'Prueba123'
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const consoleErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => consoleErrors.push(error.message))
+
+  try {
+    await createCloudAccount(page, email, password, 'Cloud Confirm')
+    await addCloudPerson(page, 'Raul Confirm')
+    await saveDebt(page, 'Cafe confirmado', '13', 'Raul Confirm', 'owes_me')
+    await expect(summaryAmount(page, 'Me deben')).toContainText('13,00')
+
+    await page.getByRole('button', { name: /Resumen/i }).click()
+    await personCard(page, 'Raul Confirm').getByLabel('QR de cobro').click()
+    const qrDialog = page.getByRole('dialog', { name: /QR de cobro/i })
+    await expect(qrDialog).toBeVisible()
+    const publicQrHref = await qrDialog.getByRole('link', { name: /Ver tarjeta/i }).getAttribute('href')
+    expect(publicQrHref).toContain('qrid=')
+
+    const publicPage = await context.newPage()
+    await publicPage.goto(publicQrHref!, { waitUntil: 'networkidle' })
+    await expect(publicPage.getByRole('heading', { name: /WANTED/i })).toBeVisible({ timeout: 20_000 })
+    await publicPage.getByRole('button', { name: /Ya he pagado/i }).click()
+    await expect(publicPage.getByRole('button', { name: /Aviso enviado/i })).toBeVisible({ timeout: 20_000 })
+    await publicPage.close()
+
+    await expect(page.getByText(/Raul Confirm dice que ha pagado|Raul Confirm avisa que ha pagado/i)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: /Pagos avisados/i })).toBeVisible()
+    await page.getByRole('button', { name: /^Aceptar$/i }).click()
+    await expect(summaryAmount(page, 'Me deben')).toContainText('0,00', { timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: /Pagos avisados/i })).toHaveCount(0)
+
     expect(consoleErrors).toEqual([])
   } finally {
     await context.close().catch(() => undefined)

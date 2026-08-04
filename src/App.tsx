@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as QRCode from 'qrcode'
 import Dexie, { type Table } from 'dexie'
 import {
@@ -191,11 +191,30 @@ interface PublicQrPayload {
   tone: 'collect' | 'pay' | 'settled'
   photo?: string
   ownerName?: string
+  ownerId?: string
+  ledgerId?: string
+  sharedLedger?: boolean
+  personId?: string
 }
 
 interface QrPayload extends PublicQrPayload {
   url: string
   phone?: string
+}
+
+interface PaymentConfirmation {
+  id: string
+  ownerId: string
+  qrid: string
+  ledgerId?: string
+  sharedLedger?: boolean
+  personId?: string
+  payerName: string
+  amount: number
+  message: string
+  status: 'pending' | 'accepted' | 'dismissed'
+  createdAt: string
+  resolvedAt?: string
 }
 
 interface SmartDraft {
@@ -232,6 +251,8 @@ const sessionKey = 'cuentas-claras-session'
 const publicQrStoragePrefix = 'cuentas-claras-public-qr-'
 const publicQrPhotoMaxLength = 7000
 const publicQrDoc = (qrId: string) => doc(firestore!, 'publicQrs', qrId)
+const paymentConfirmationsCollection = (userId: string) => collection(firestore!, 'users', userId, 'paymentConfirmations')
+const paymentConfirmationDoc = (userId: string, confirmationId: string) => doc(firestore!, 'users', userId, 'paymentConfirmations', confirmationId)
 const today = new Date().toISOString().slice(0, 10)
 const dayMs = 86_400_000
 const me: ActorId = 'me'
@@ -630,6 +651,10 @@ function publicQrPayloadFromUnknown(value: unknown): PublicQrPayload | null {
     tone,
     photo: typeof parsed.photo === 'string' ? parsed.photo : undefined,
     ownerName: typeof parsed.ownerName === 'string' ? parsed.ownerName : undefined,
+    ownerId: typeof parsed.ownerId === 'string' ? parsed.ownerId : undefined,
+    ledgerId: typeof parsed.ledgerId === 'string' ? parsed.ledgerId : undefined,
+    sharedLedger: typeof parsed.sharedLedger === 'boolean' ? parsed.sharedLedger : undefined,
+    personId: typeof parsed.personId === 'string' ? parsed.personId : undefined,
   }
 }
 
@@ -1118,11 +1143,13 @@ function App() {
   const [pinLocked, setPinLocked] = useState(false)
   const [qrPayload, setQrPayload] = useState<QrPayload | null>(null)
   const [qrImageUrl, setQrImageUrl] = useState('')
+  const [paymentConfirmations, setPaymentConfirmations] = useState<PaymentConfirmation[]>([])
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
   const activeLedgerId = activeGroup?.id ?? currentUser?.id ?? ''
   const isSharedLedger = Boolean(activeGroup)
+  const seenConfirmationIds = useRef(new Set<string>())
 
   useEffect(() => {
     if (!qrPayload) {
@@ -1273,6 +1300,34 @@ function App() {
       if (storedPeople[0]) setPersonId(storedPeople[0].id)
     })
   }, [activeLedgerId, currentUser, isSharedLedger, personId, syncMode])
+
+  useEffect(() => {
+    if (!currentUser || syncMode !== 'cloud' || !firestore) {
+      setPaymentConfirmations([])
+      seenConfirmationIds.current.clear()
+      return
+    }
+    return onSnapshot(
+      paymentConfirmationsCollection(currentUser.id),
+      (snapshot) => {
+        const nextConfirmations = snapshot.docs
+          .map((confirmationDoc) => ({ id: confirmationDoc.id, ...confirmationDoc.data() }) as PaymentConfirmation)
+          .filter((confirmation) => confirmation.status === 'pending')
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        const fresh = nextConfirmations.find((confirmation) => !seenConfirmationIds.current.has(confirmation.id))
+        nextConfirmations.forEach((confirmation) => seenConfirmationIds.current.add(confirmation.id))
+        setPaymentConfirmations(nextConfirmations)
+        if (fresh) {
+          const body = `${fresh.payerName} dice que ha pagado ${formatMoney(fresh.amount)}.`
+          setNotice(body)
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(appName, { body })
+          }
+        }
+      },
+      () => setSyncMessage('Firebase: error leyendo confirmaciones de pago'),
+    )
+  }, [currentUser, syncMode])
 
   useEffect(() => {
     if (!notice) return
@@ -2546,6 +2601,10 @@ function App() {
       tone: balance > 0 ? 'collect' : balance < 0 ? 'pay' : 'settled',
       photo: await qrPhotoForPerson(person),
       ownerName,
+      ownerId: currentUser?.id,
+      ledgerId: activeLedgerId,
+      sharedLedger: isSharedLedger,
+      personId: person.id,
     } satisfies PublicQrPayload
   }
 
@@ -2599,6 +2658,47 @@ function App() {
     await Promise.all(openPersonRecords.map((record) => persistRecord({ ...record, status: 'pagado' })))
     if (syncMode === 'local') await refreshData()
     setNotice(`Saldo de ${person.name} liquidado.`)
+  }
+
+  function switchToConfirmationLedger(confirmation: PaymentConfirmation) {
+    if (!confirmation.ledgerId) return
+    if (confirmation.sharedLedger) {
+      if (groups.some((group) => group.id === confirmation.ledgerId)) {
+        setActiveGroupId(confirmation.ledgerId)
+        setNotice('Grupo abierto. Revisa la confirmacion y aceptala.')
+      } else {
+        setNotice('Esa confirmacion pertenece a un grupo que no esta cargado ahora.')
+      }
+      return
+    }
+    setActiveGroupId(null)
+    setNotice('Cuenta personal abierta. Revisa la confirmacion y aceptala.')
+  }
+
+  async function resolvePaymentConfirmation(confirmation: PaymentConfirmation, status: 'accepted' | 'dismissed') {
+    if (!currentUser || !firestore) return
+    await setDoc(
+      paymentConfirmationDoc(currentUser.id, confirmation.id),
+      { status, resolvedAt: new Date().toISOString() },
+      { merge: true },
+    )
+    setPaymentConfirmations((current) => current.filter((item) => item.id !== confirmation.id))
+  }
+
+  async function acceptPaymentConfirmation(confirmation: PaymentConfirmation) {
+    if (!currentUser || !firestore) return
+    if (confirmation.ledgerId && confirmation.ledgerId !== activeLedgerId) {
+      switchToConfirmationLedger(confirmation)
+      return
+    }
+    const targetPerson = confirmation.personId ? people.find((person) => person.id === confirmation.personId) : null
+    if (!targetPerson) {
+      setNotice('No encuentro esa persona en la libreta activa.')
+      return
+    }
+    await settlePerson(targetPerson)
+    await resolvePaymentConfirmation(confirmation, 'accepted')
+    setNotice(`Pago de ${confirmation.payerName} confirmado y cuenta cerrada.`)
   }
 
   function startQuickPayment(person: Person) {
@@ -3285,6 +3385,39 @@ function App() {
           </div>
 
           <aside className="side-column">
+            {paymentConfirmations.length > 0 && (
+              <section className="panel confirmation-panel">
+                <div className="section-heading compact">
+                  <h2>Pagos avisados</h2>
+                  <BellRing aria-hidden="true" />
+                </div>
+                <div className="confirmation-list">
+                  {paymentConfirmations.map((confirmation) => {
+                    const needsSwitch = Boolean(confirmation.ledgerId && confirmation.ledgerId !== activeLedgerId)
+                    return (
+                      <article className="confirmation-card" key={confirmation.id}>
+                        <span>
+                          <strong>{confirmation.payerName}</strong>
+                          <small>{confirmation.message}</small>
+                        </span>
+                        <em>{formatMoney(confirmation.amount)}</em>
+                        <div className="button-row">
+                          <button className="primary-button" type="button" onClick={() => acceptPaymentConfirmation(confirmation)}>
+                            <CheckCircle2 aria-hidden="true" />
+                            {needsSwitch ? 'Abrir cuenta' : 'Aceptar'}
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => resolvePaymentConfirmation(confirmation, 'dismissed')}>
+                            <X aria-hidden="true" />
+                            Ignorar
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
             <section className="panel mini-stats">
               <div className="section-heading compact">
                 <h2>Actividad</h2>
@@ -4396,7 +4529,9 @@ function App() {
 }
 
 function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
+  const [confirmationStatus, setConfirmationStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const ownerName = payload.ownerName || appName
+  const canConfirmPayment = payload.tone === 'collect' && payload.amount > 0 && Boolean(payload.ownerId && firestore)
   const title =
     payload.tone === 'collect'
       ? 'WANTED'
@@ -4449,6 +4584,50 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
             <span>{footerLabel}</span>
             <strong>MARINE</strong>
           </div>
+        </div>
+        <div className="public-confirm-box">
+          {canConfirmPayment ? (
+            <>
+              <button
+                className="public-confirm-button"
+                disabled={confirmationStatus === 'sending' || confirmationStatus === 'sent'}
+                type="button"
+                onClick={async () => {
+                  if (!payload.ownerId || !firestore) return
+                  setConfirmationStatus('sending')
+                  const qrid = new URLSearchParams(window.location.search).get('qrid') || uid()
+                  const confirmationId = uid()
+                  const message = `${payload.title} avisa que ha pagado ${formatMoney(payload.amount)}.`
+                  try {
+                    const confirmation = {
+                      id: confirmationId,
+                      ownerId: payload.ownerId,
+                      qrid,
+                      ledgerId: payload.ledgerId,
+                      sharedLedger: Boolean(payload.sharedLedger),
+                      personId: payload.personId,
+                      payerName: payload.title,
+                      amount: payload.amount,
+                      message,
+                      status: 'pending',
+                      createdAt: new Date().toISOString(),
+                    } satisfies PaymentConfirmation
+                    await setDoc(paymentConfirmationDoc(payload.ownerId, confirmationId), cleanForFirestore(confirmation))
+                    setConfirmationStatus('sent')
+                  } catch {
+                    setConfirmationStatus('error')
+                  }
+                }}
+              >
+                <CheckCircle2 aria-hidden="true" />
+                {confirmationStatus === 'sent' ? 'Aviso enviado' : confirmationStatus === 'sending' ? 'Enviando...' : 'Ya he pagado'}
+              </button>
+              <p>{confirmationStatus === 'sent' ? 'Se ha avisado al propietario para que revise y cierre la cuenta.' : 'Pulsa solo cuando hayas hecho el pago.'}</p>
+              {confirmationStatus === 'error' && <p className="public-confirm-error">No se pudo enviar el aviso. Intentalo otra vez.</p>}
+            </>
+          ) : (
+            <p>Este cartel es informativo.</p>
+          )}
         </div>
       </section>
     </main>
