@@ -939,10 +939,14 @@ async function buildWantedPosterDataUrl(payload: QrPayload) {
 }
 
 async function downloadWantedPoster(payload: QrPayload) {
+  const dataUrl = await buildWantedPosterDataUrl(payload)
+  const blob = await (await fetch(dataUrl)).blob()
+  const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.download = posterFilename(payload)
-  link.href = await buildWantedPosterDataUrl(payload)
+  link.href = url
   link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function whatsappUrl(text: string, phone?: string) {
@@ -961,12 +965,22 @@ async function copyPosterImage(blob: Blob) {
   }
 }
 
+async function copyReminderText(text: string) {
+  try {
+    await navigator.clipboard?.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
   const text = `${payload.text}\n\nDetalle de la cuenta: ${payload.url}`
-  const shareData = { title: appName, text, files: [file] }
+  const shareData = { title: appName, text, url: payload.url, files: [file] }
+  const copiedText = await copyReminderText(text)
 
   const canShareFiles =
     typeof navigator.share === 'function' &&
@@ -982,18 +996,15 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
 
   const copiedPoster = await copyPosterImage(blob)
   window.open(whatsappUrl(text, phone), '_blank', 'noopener,noreferrer')
-  if (copiedPoster) return 'clipboard-image'
+  if (copiedPoster) return copiedText ? 'clipboard-image-and-text' : 'clipboard-image'
 
-  try {
-    await navigator.clipboard?.writeText(text)
-  } catch {
-    // El cartel se descarga aunque no se pueda copiar el texto.
-  }
+  const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.download = posterFilename(payload)
-  link.href = dataUrl
+  link.href = url
   link.click()
-  return 'downloaded'
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return copiedText ? 'downloaded-with-text' : 'downloaded'
 }
 
 async function saveManyToFirestore(ledgerId: string, importedPeople: Person[], importedRecords: LedgerRecord[], sharedLedger = false) {
@@ -2544,10 +2555,12 @@ function App() {
       const result = await shareWantedPoster(payload, person.phone)
       setNotice(
         result === 'shared'
-          ? 'Cartel preparado con imagen. Elige WhatsApp y pulsa enviar.'
-          : result === 'clipboard-image'
-            ? 'WhatsApp abierto. El cartel esta copiado como imagen: pegalo en el chat y envia.'
-            : 'WhatsApp abierto. Cartel descargado y texto copiado para enviarlo junto.',
+          ? 'Cartel enviado a compartir. El texto tambien queda copiado por si WhatsApp no lo pega.'
+          : result.includes('clipboard-image')
+            ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
+            : result.includes('downloaded')
+              ? 'WhatsApp abierto. Cartel descargado y mensaje copiado; adjunta el PNG si WhatsApp no lo mete solo.'
+              : 'WhatsApp abierto. Mensaje preparado.',
       )
     } catch {
       setNotice('No se pudo preparar el cartel para WhatsApp.')
@@ -4335,10 +4348,12 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => shareWantedPoster(qrPayload).then((result) => {
                 setNotice(
                   result === 'shared'
-                    ? 'Cartel preparado con imagen. Elige WhatsApp y pulsa enviar.'
-                    : result === 'clipboard-image'
-                      ? 'WhatsApp abierto. El cartel esta copiado como imagen: pegalo en el chat y envia.'
-                      : 'WhatsApp abierto. Cartel descargado y texto copiado para enviarlo junto.',
+                    ? 'Cartel enviado a compartir. El texto tambien queda copiado por si WhatsApp no lo pega.'
+                    : result.includes('clipboard-image')
+                      ? 'WhatsApp abierto. Cartel copiado como imagen y mensaje copiado: pega y envia.'
+                      : result.includes('downloaded')
+                        ? 'WhatsApp abierto. Cartel descargado y mensaje copiado; adjunta el PNG si WhatsApp no lo mete solo.'
+                        : 'WhatsApp abierto. Mensaje preparado.',
                 )
               }).catch(() => setNotice('No se pudo preparar el cartel.'))}>
                 <MessageCircle aria-hidden="true" />
