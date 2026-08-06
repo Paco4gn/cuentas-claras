@@ -294,6 +294,12 @@ const formatMoney = (value: number) =>
 
 const uid = () => crypto.randomUUID()
 
+function shortPublicId() {
+  const alphabet = '23456789abcdefghijkmnopqrstuvwxyz'
+  const values = crypto.getRandomValues(new Uint8Array(12))
+  return Array.from(values, (value) => alphabet[value % alphabet.length]).join('')
+}
+
 function makeRecoveryCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   const chars = Array.from(crypto.getRandomValues(new Uint8Array(12))).map((value) => alphabet[value % alphabet.length])
@@ -666,8 +672,8 @@ function compactQrPayload(payload: PublicQrPayload, includePhoto = true): Public
 
 async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string, options: { short?: boolean } = {}) {
   const url = new URL(import.meta.env.BASE_URL, window.location.origin)
-  const qrId = uid()
-  url.searchParams.set('qrid', qrId)
+  const qrId = options.short ? shortPublicId() : uid()
+  url.searchParams.set(options.short ? 'p' : 'qrid', qrId)
   let cloudSaved = false
   try {
     localStorage.setItem(`${publicQrStoragePrefix}${qrId}`, JSON.stringify(payload))
@@ -689,7 +695,8 @@ async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string, opti
 }
 
 function readPublicQrPayload(): PublicQrPayload | null {
-  const qrId = new URLSearchParams(window.location.search).get('qrid')
+  const searchParams = new URLSearchParams(window.location.search)
+  const qrId = searchParams.get('p') || searchParams.get('qrid')
   if (qrId) {
     try {
       const storedPayload = localStorage.getItem(`${publicQrStoragePrefix}${qrId}`)
@@ -699,7 +706,7 @@ function readPublicQrPayload(): PublicQrPayload | null {
       // Si no hay payload local, se usa el que viaja dentro del enlace.
     }
   }
-  const rawPayload = new URLSearchParams(window.location.search).get('cobro')
+  const rawPayload = searchParams.get('cobro')
   if (!rawPayload) return null
   try {
     return publicQrPayloadFromUnknown(JSON.parse(rawPayload))
@@ -982,7 +989,8 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
-  const text = payload.text
+  const confirmationLine = payload.tone === 'collect' && payload.url ? `\n\nConfirmar cuando este pagado: ${payload.url}` : ''
+  const text = `${payload.text}${confirmationLine}`
   const shareData: ShareData = { title: appName, text, files: [file] }
   const copiedText = await copyReminderText(text)
   const targetPhone = phone ?? payload.phone
@@ -1173,7 +1181,8 @@ function App() {
   }, [qrPayload])
 
   useEffect(() => {
-    const qrId = new URLSearchParams(window.location.search).get('qrid')
+    const searchParams = new URLSearchParams(window.location.search)
+    const qrId = searchParams.get('p') || searchParams.get('qrid')
     if (!qrId || !firestore) return
     let cancelled = false
     getDoc(publicQrDoc(qrId)).then((snapshot) => {
@@ -2624,7 +2633,7 @@ function App() {
       const result = await shareWantedPoster(payload, person.phone)
       setNotice(
         result === 'shared'
-          ? 'Hoja de compartir abierta con cartel PNG y texto, sin enlace.'
+          ? 'Hoja de compartir abierta con cartel PNG, texto y enlace corto de confirmacion.'
           : result === 'cancelled'
             ? 'Envio cancelado.'
           : result.startsWith('direct')
@@ -4497,7 +4506,7 @@ function App() {
               <button className="secondary-button" type="button" onClick={() => shareWantedPoster(qrPayload).then((result) => {
                 setNotice(
                   result === 'shared'
-                    ? 'Hoja de compartir abierta con cartel PNG y texto, sin enlace.'
+                    ? 'Hoja de compartir abierta con cartel PNG, texto y enlace de confirmacion.'
                     : result === 'cancelled'
                       ? 'Envio cancelado.'
                     : result.startsWith('direct')
@@ -4595,7 +4604,8 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
                 onClick={async () => {
                   if (!payload.ownerId || !firestore) return
                   setConfirmationStatus('sending')
-                  const qrid = new URLSearchParams(window.location.search).get('qrid') || uid()
+                  const searchParams = new URLSearchParams(window.location.search)
+                  const qrid = searchParams.get('p') || searchParams.get('qrid') || uid()
                   const confirmationId = uid()
                   const message = `${payload.title} avisa que ha pagado ${formatMoney(payload.amount)}.`
                   try {
@@ -4620,7 +4630,7 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
                 }}
               >
                 <CheckCircle2 aria-hidden="true" />
-                {confirmationStatus === 'sent' ? 'Aviso enviado' : confirmationStatus === 'sending' ? 'Enviando...' : 'Ya he pagado'}
+                {confirmationStatus === 'sent' ? 'Aviso enviado' : confirmationStatus === 'sending' ? 'Enviando...' : 'Ya he pagado y avisar'}
               </button>
               <p>{confirmationStatus === 'sent' ? 'Se ha avisado al propietario para que revise y cierre la cuenta.' : 'Pulsa solo cuando hayas hecho el pago.'}</p>
               {confirmationStatus === 'error' && <p className="public-confirm-error">No se pudo enviar el aviso. Intentalo otra vez.</p>}

@@ -136,10 +136,11 @@ async function createCloudAccount(page: Page, email: string, password: string, n
   await expect(page.getByText(/Firebase|Sincronizado/i)).toBeVisible({ timeout: 15_000 })
 }
 
-async function addCloudPerson(page: Page, name: string) {
+async function addCloudPerson(page: Page, name: string, phone = '') {
   await page.getByRole('button', { name: /Personas/i }).click()
   await expect(page.getByRole('button', { name: /Anadir persona/i })).toBeEnabled({ timeout: 10_000 })
   await page.getByRole('textbox', { name: 'Nombre' }).fill(name)
+  if (phone) await page.getByLabel('Telefono').fill(phone)
   await page.getByRole('button', { name: /Anadir persona/i }).click()
   await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: /Anadir persona/i })).toBeEnabled({ timeout: 10_000 })
@@ -362,6 +363,73 @@ test('production Firebase receives public payment confirmations and closes them 
     await expect(summaryAmount(page, 'Me deben')).toContainText('0,00', { timeout: 20_000 })
     await expect(page.getByRole('heading', { name: /Pagos avisados/i })).toHaveCount(0)
 
+    expect(consoleErrors).toEqual([])
+  } finally {
+    await context.close().catch(() => undefined)
+    await cleanupCloudUser(email, password)
+  }
+})
+
+test('production WhatsApp poster share includes a short public confirmation link', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const email = `cloud-share-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`
+  const password = 'Prueba123'
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const consoleErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => consoleErrors.push(error.message))
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: (data: ShareData) => Boolean(data.files?.length),
+    })
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (data: ShareData) => {
+        const file = data.files?.[0]
+        ;(window as Window & { __sharedPoster?: unknown }).__sharedPoster = {
+          fileCount: data.files?.length ?? 0,
+          fileName: file?.name ?? '',
+          fileType: file?.type ?? '',
+          hasUrl: 'url' in data,
+          text: data.text ?? '',
+          title: data.title ?? '',
+        }
+      },
+    })
+  })
+
+  try {
+    await createCloudAccount(page, email, password, 'Cloud Share')
+    await addCloudPerson(page, 'Raul Share', '600123123')
+    await saveDebt(page, 'Cafe share', '6', 'Raul Share', 'owes_me')
+
+    await page.getByLabel('Enviar WhatsApp con cartel').first().click()
+    const sharedPoster = await page.waitForFunction(() => (window as Window & { __sharedPoster?: unknown }).__sharedPoster)
+    const shared = await sharedPoster.jsonValue() as {
+      fileCount: number
+      fileName: string
+      fileType: string
+      hasUrl: boolean
+      text: string
+      title: string
+    }
+
+    expect(shared.title).toBe('CazaMorosos')
+    expect(shared.fileCount).toBe(1)
+    expect(shared.fileName).toMatch(/cartel-raul-share\.png/)
+    expect(shared.fileType).toBe('image/png')
+    expect(shared.hasUrl).toBe(false)
+    expect(shared.text).toContain('Raul Share')
+    expect(shared.text).toContain('6,00')
+    expect(shared.text).toContain('Confirmar cuando este pagado:')
+    expect(shared.text).toMatch(/https:\/\/paco4gn\.github\.io\/cuentas-claras\/\?p=[a-z0-9]{12}/)
+    expect(shared.text).not.toContain('cobro=')
+    expect(shared.text).not.toContain('data:image')
+    expect(shared.text.length).toBeLessThan(260)
     expect(consoleErrors).toEqual([])
   } finally {
     await context.close().catch(() => undefined)

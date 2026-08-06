@@ -126,14 +126,14 @@ test('WhatsApp button opens direct phone chat when the person has a number', asy
   const message = decodeURIComponent(new URL(openedWhatsappUrl).searchParams.get('text') ?? '')
   expect(openedWhatsappUrl).toContain('https://wa.me/34600123123')
   expect(openedWhatsappUrl).not.toContain('data:image')
-  expect(openedWhatsappUrl.length).toBeLessThan(900)
+  expect(openedWhatsappUrl.length).toBeLessThan(1200)
   expect(message).toContain('Raul Directo')
   expect(message).toContain('6,00')
-  expect(message).not.toContain('http')
-  expect(message).not.toContain('qrid')
+  expect(message).toContain('Confirmar cuando este pagado:')
+  expect(message).not.toContain('data:image')
 })
 
-test('poster share sends image and text without link when native file sharing is available', async ({ page }) => {
+test('poster share sends image, text and short confirmation link when native file sharing is available', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'canShare', {
       configurable: true,
@@ -176,7 +176,8 @@ test('poster share sends image and text without link when native file sharing is
   expect(shared.hasUrl).toBe(false)
   expect(shared.text).toContain('Raul Foto')
   expect(shared.text).toContain('6,00')
-  expect(shared.text).not.toContain('http')
+  expect(shared.text).toContain('Confirmar cuando este pagado:')
+  expect(shared.text).toContain('/cuentas-claras/')
   expect(shared.text).not.toContain('data:image')
 })
 
