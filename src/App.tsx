@@ -222,6 +222,8 @@ interface TicketItem {
   title: string
   amount: number
   participantIds: ActorId[]
+  groupKey?: string
+  groupTitle?: string
 }
 
 interface SmartDraft {
@@ -538,12 +540,37 @@ function parseTicketAmount(value: string) {
   return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0
 }
 
-function amountFromUnitQuantity(line: string) {
+function unitQuantityFromLine(line: string) {
   const unitQuantity = line.match(/((?:\d|[oO]){1,4}[,.]\d{1,2})\s*[xX]\s*(\d{1,3})/)
-  if (!unitQuantity) return 0
+  if (!unitQuantity) return null
   const unitAmount = parseTicketAmount(unitQuantity[1])
   const quantity = Number(unitQuantity[2])
-  return unitAmount > 0 && quantity > 0 ? Number((unitAmount * quantity).toFixed(2)) : 0
+  return unitAmount > 0 && quantity > 0 ? { unitAmount, quantity } : null
+}
+
+function splitCents(total: number, parts: number) {
+  const totalCents = Math.round(total * 100)
+  const baseCents = Math.floor(totalCents / parts)
+  let remainingCents = totalCents
+  return Array.from({ length: parts }, (_, index) => {
+    const cents = index === parts - 1 ? remainingCents : baseCents
+    remainingCents -= cents
+    return cents
+  })
+}
+
+function ticketItemsFromParts(title: string, amount: number, parts: number, participantIds: ActorId[] = [], groupKey: string = uid()) {
+  if (parts <= 1) return [{ id: uid(), title, amount, participantIds, groupKey, groupTitle: title } satisfies TicketItem]
+  return splitCents(amount, parts)
+    .map((cents, index) => ({
+      id: uid(),
+      title: `${title} ${index + 1}/${parts}`,
+      amount: Number((cents / 100).toFixed(2)),
+      participantIds: index === 0 ? participantIds : [],
+      groupKey,
+      groupTitle: title,
+    }) satisfies TicketItem)
+    .filter((item) => item.amount > 0)
 }
 
 function parseTicketTotal(text: string) {
@@ -580,7 +607,8 @@ function parseTicketText(text: string): TicketItem[] {
       if (!matches.length) return
       const lastMatch = matches[matches.length - 1]
       const printedAmount = parseTicketAmount(lastMatch[0])
-      const calculatedAmount = amountFromUnitQuantity(normalizedLine)
+      const unitQuantity = unitQuantityFromLine(normalizedLine)
+      const calculatedAmount = unitQuantity ? Number((unitQuantity.unitAmount * unitQuantity.quantity).toFixed(2)) : 0
       const title = normalizedLine
         .slice(0, lastMatch.index)
         .replace(/\s+(?:\d|[oO]){1,4}[,.]\d{1,2}\s*[xX]\s*\d+\s*$/i, '')
@@ -598,7 +626,7 @@ function parseTicketText(text: string): TicketItem[] {
       }
       const amount = calculatedAmount || printedAmount
       if (!title || amount <= 0 || ignoredTitle.test(title) || ignoredWords.test(title)) return
-      items.push({ id: uid(), title, amount, participantIds: [] })
+      items.push(...ticketItemsFromParts(title, amount, unitQuantity?.quantity ?? 1))
     })
   return items.filter((item) => item.amount > 0)
 }
@@ -1667,8 +1695,10 @@ function App() {
   const ticketTotals = useMemo(() => {
     const totals = new Map<ActorId, number>()
     const total = ticketItems.reduce((sum, item) => sum + item.amount, 0)
+    const assignedTotal = ticketItems.reduce((sum, item) => sum + (item.participantIds.length ? item.amount : 0), 0)
     ticketItems.forEach((item) => {
-      const participants = item.participantIds.length ? item.participantIds : [me]
+      const participants = item.participantIds
+      if (!participants.length) return
       const baseCents = Math.round((item.amount * 100) / participants.length)
       let remainingCents = Math.round(item.amount * 100)
       participants.forEach((id, index) => {
@@ -1677,7 +1707,7 @@ function App() {
         remainingCents -= cents
       })
     })
-    return { total: Number(total.toFixed(2)), shares: totals }
+    return { total: Number(total.toFixed(2)), assignedTotal: Number(assignedTotal.toFixed(2)), pendingTotal: Number((total - assignedTotal).toFixed(2)), shares: totals }
   }, [ticketItems])
   const currentTicketItem = ticketItems[ticketStep] ?? null
   const ticketAssignedCount = ticketItems.filter((item) => item.participantIds.length > 0).length
@@ -2565,19 +2595,7 @@ function App() {
       setTicketError('Elige entre 2 y 12 partes para dividir el producto.')
       return
     }
-    const totalCents = Math.round(item.amount * 100)
-    const baseCents = Math.floor(totalCents / parts)
-    let remainingCents = totalCents
-    const splitItems = Array.from({ length: parts }, (_, index) => {
-      const cents = index === parts - 1 ? remainingCents : baseCents
-      remainingCents -= cents
-      return {
-        id: uid(),
-        title: `${item.title} ${index + 1}/${parts}`,
-        amount: Number((cents / 100).toFixed(2)),
-        participantIds: index === 0 ? item.participantIds : [],
-      } satisfies TicketItem
-    }).filter((splitItem) => splitItem.amount > 0)
+    const splitItems = ticketItemsFromParts(item.groupTitle ?? item.title.replace(/\s+\d+\/\d+$/, ''), item.amount, parts, item.participantIds, item.groupKey ?? uid())
     setTicketItems((items) => {
       const index = items.findIndex((ticketItem) => ticketItem.id === itemId)
       if (index < 0) return items
@@ -2587,6 +2605,59 @@ function App() {
     })
     setTicketError('')
     setNotice(`${item.title} dividido en ${splitItems.length} partes. Ahora asigna cada parte a quien corresponda.`)
+  }
+
+  function mergeTicketGroup(groupKey?: string) {
+    if (!groupKey) return
+    setTicketItems((items) => {
+      const groupItems = items.filter((item) => item.groupKey === groupKey)
+      if (groupItems.length < 2) return items
+      const firstIndex = items.findIndex((item) => item.groupKey === groupKey)
+      const participantIds = [...new Set(groupItems.flatMap((item) => item.participantIds))]
+      const mergedItem: TicketItem = {
+        id: uid(),
+        title: groupItems[0].groupTitle ?? groupItems[0].title.replace(/\s+\d+\/\d+$/, ''),
+        amount: Number(groupItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)),
+        participantIds,
+        groupKey,
+        groupTitle: groupItems[0].groupTitle,
+      }
+      const nextItems = items.filter((item) => item.groupKey !== groupKey)
+      nextItems.splice(firstIndex, 0, mergedItem)
+      setTicketStep(Math.max(0, Math.min(firstIndex, nextItems.length - 1)))
+      return nextItems
+    })
+    setTicketError('')
+    setNotice('Grupo juntado en una sola linea.')
+  }
+
+  function mergeAllTicketGroups() {
+    setTicketItems((items) => {
+      const nextItems: TicketItem[] = []
+      const seen = new Set<string>()
+      items.forEach((item) => {
+        const groupKey = item.groupKey ?? item.id
+        if (seen.has(groupKey)) return
+        const groupItems = items.filter((candidate) => (candidate.groupKey ?? candidate.id) === groupKey)
+        seen.add(groupKey)
+        if (groupItems.length < 2) {
+          nextItems.push(item)
+          return
+        }
+        nextItems.push({
+          id: uid(),
+          title: groupItems[0].groupTitle ?? groupItems[0].title.replace(/\s+\d+\/\d+$/, ''),
+          amount: Number(groupItems.reduce((sum, groupItem) => sum + groupItem.amount, 0).toFixed(2)),
+          participantIds: [...new Set(groupItems.flatMap((groupItem) => groupItem.participantIds))],
+          groupKey,
+          groupTitle: groupItems[0].groupTitle,
+        })
+      })
+      setTicketStep((step) => Math.min(step, Math.max(nextItems.length - 1, 0)))
+      return nextItems
+    })
+    setTicketError('')
+    setNotice('Productos repetidos juntados por grupos.')
   }
 
   function goToNextTicketQuestion() {
@@ -4483,6 +4554,10 @@ function App() {
                 <Plus aria-hidden="true" />
                 Linea
               </button>
+              <button className="secondary-button" disabled={!ticketItems.some((item, _index, items) => item.groupKey && items.filter((candidate) => candidate.groupKey === item.groupKey).length > 1)} onClick={mergeAllTicketGroups} type="button">
+                <Link2 aria-hidden="true" />
+                Juntar repetidos
+              </button>
             </div>
             <label>
               Texto del ticket
@@ -4542,6 +4617,16 @@ function App() {
                       <button aria-label={`Dividir ${currentTicketItem.title}`} className="icon-button" onClick={() => splitTicketItem(currentTicketItem.id)} title="Dividir linea" type="button">
                         <Route aria-hidden="true" />
                       </button>
+                      <button
+                        aria-label={`Juntar grupo ${currentTicketItem.groupTitle ?? currentTicketItem.title}`}
+                        className="icon-button"
+                        disabled={!currentTicketItem.groupKey || ticketItems.filter((item) => item.groupKey === currentTicketItem.groupKey).length < 2}
+                        onClick={() => mergeTicketGroup(currentTicketItem.groupKey)}
+                        title="Juntar grupo"
+                        type="button"
+                      >
+                        <Link2 aria-hidden="true" />
+                      </button>
                       <button aria-label={`Quitar ${currentTicketItem.title}`} className="icon-button danger" onClick={() => removeTicketItem(currentTicketItem.id)} type="button">
                         <Trash2 aria-hidden="true" />
                       </button>
@@ -4579,6 +4664,9 @@ function App() {
                   ))}
                 </div>
                 <div className="ticket-summary">
+                  <span>Total <strong>{formatMoney(ticketTotals.total)}</strong></span>
+                  <span>Asignado <strong>{formatMoney(ticketTotals.assignedTotal)}</strong></span>
+                  {ticketTotals.pendingTotal > 0.009 && <span>Falta <strong>{formatMoney(ticketTotals.pendingTotal)}</strong></span>}
                   {[...ticketTotals.shares.entries()].map(([actorId, value]) => (
                     <span key={actorId}>
                       {personName(actorId, people)} <strong>{formatMoney(value)}</strong>
