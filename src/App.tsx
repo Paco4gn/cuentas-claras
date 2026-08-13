@@ -217,6 +217,13 @@ interface PaymentConfirmation {
   resolvedAt?: string
 }
 
+interface TicketItem {
+  id: string
+  title: string
+  amount: number
+  participantIds: ActorId[]
+}
+
 interface SmartDraft {
   kind: RecordKind
   title: string
@@ -487,6 +494,29 @@ function parseSmartText(text: string, people: Person[]): SmartDraft | { error: s
   }
 
   return { kind: 'debt', title, amount, personName: personNameFromText(clean, normalized, people), direction: 'owes_me', status, dueDate, tags, note: clean }
+}
+
+function parseTicketAmount(value: string) {
+  const normalized = value.replace(/\s/g, '').replace(',', '.')
+  const amount = Number(normalized)
+  return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0
+}
+
+function parseTicketText(text: string): TicketItem[] {
+  const ignoredWords = /\b(total|subtotal|visa|mastercard|tarjeta|efectivo|cambio|iva|base|ticket|factura|cif|nif|fecha|hora|mesa|pedido|gracias|recibo)\b/i
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length >= 4 && !ignoredWords.test(line))
+    .map((line) => {
+      const match = line.match(/(.+?)\s+(-?\d{1,4}(?:[,.]\d{2}))\s*(?:€|eur)?\s*$/i)
+      if (!match) return null
+      const amount = parseTicketAmount(match[2])
+      const title = match[1].replace(/^\d+\s*x?\s*/i, '').replace(/[^\p{L}\p{N}\s.,'/-]/gu, '').trim()
+      if (!title || amount <= 0) return null
+      return { id: uid(), title, amount, participantIds: [] } satisfies TicketItem
+    })
+    .filter(Boolean) as TicketItem[]
 }
 
 function smartDraftSummary(draft: SmartDraft) {
@@ -1146,6 +1176,11 @@ function App() {
   const [smartText, setSmartText] = useState('')
   const [smartError, setSmartError] = useState('')
   const [smartListening, setSmartListening] = useState(false)
+  const [ticketText, setTicketText] = useState('')
+  const [ticketItems, setTicketItems] = useState<TicketItem[]>([])
+  const [ticketPaidBy, setTicketPaidBy] = useState<ActorId>(me)
+  const [ticketOcrBusy, setTicketOcrBusy] = useState(false)
+  const [ticketError, setTicketError] = useState('')
   const [balanceSearch, setBalanceSearch] = useState('')
   const [showZeroBalances, setShowZeroBalances] = useState(true)
   const [privacyHidden, setPrivacyHidden] = useState(false)
@@ -1506,6 +1541,22 @@ function App() {
       `${second} me debe 30 por alquiler vence viernes etiqueta casa`,
     ]
   }, [people])
+
+  const ticketTotals = useMemo(() => {
+    const totals = new Map<ActorId, number>()
+    const total = ticketItems.reduce((sum, item) => sum + item.amount, 0)
+    ticketItems.forEach((item) => {
+      const participants = item.participantIds.length ? item.participantIds : [me]
+      const baseCents = Math.round((item.amount * 100) / participants.length)
+      let remainingCents = Math.round(item.amount * 100)
+      participants.forEach((id, index) => {
+        const cents = index === participants.length - 1 ? remainingCents : baseCents
+        totals.set(id, Number(((totals.get(id) ?? 0) + cents / 100).toFixed(2)))
+        remainingCents -= cents
+      })
+    })
+    return { total: Number(total.toFixed(2)), shares: totals }
+  }, [ticketItems])
 
   const tagStats = useMemo(() => {
     const totals = new Map<string, number>()
@@ -2276,6 +2327,124 @@ function App() {
       setTab('resumen')
     } catch {
       setSmartError('No se pudo guardar desde la frase. Revisa el texto e intentalo de nuevo.')
+    } finally {
+      setRecordSaving(false)
+    }
+  }
+
+  function analyzeTicketText() {
+    const items = parseTicketText(ticketText)
+    if (items.length === 0) {
+      setTicketError('No he detectado productos con importe. Corrige el texto o usa lineas tipo "Pizza 8,50".')
+      setTicketItems([])
+      return
+    }
+    setTicketItems(items)
+    setTicketError('')
+    setNotice(`${items.length} lineas detectadas. Marca quien comparte cada producto.`)
+  }
+
+  async function handleTicketImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setTicketOcrBusy(true)
+    setTicketError('')
+    try {
+      const { createWorker } = await import('tesseract.js')
+      const worker = await createWorker('spa+eng')
+      const result = await worker.recognize(file)
+      await worker.terminate()
+      const text = result.data.text.trim()
+      setTicketText(text)
+      const items = parseTicketText(text)
+      setTicketItems(items)
+      setNotice(items.length ? `${items.length} lineas leidas del ticket.` : 'He leido el ticket, pero toca corregir el texto.')
+      if (!items.length) setTicketError('No he detectado productos claros. Revisa el texto extraido y pulsa Analizar.')
+    } catch {
+      setTicketError('No pude leer la foto. Puedes pegar el texto del ticket y analizarlo.')
+    } finally {
+      setTicketOcrBusy(false)
+      event.target.value = ''
+    }
+  }
+
+  function updateTicketItem(itemId: string, patch: Partial<Pick<TicketItem, 'title' | 'amount'>>) {
+    setTicketItems((items) => items.map((item) => item.id === itemId ? { ...item, ...patch } : item))
+  }
+
+  function toggleTicketParticipant(itemId: string, actorId: ActorId) {
+    setTicketItems((items) =>
+      items.map((item) => {
+        if (item.id !== itemId) return item
+        const exists = item.participantIds.includes(actorId)
+        const participantIds = exists ? item.participantIds.filter((id) => id !== actorId) : [...item.participantIds, actorId]
+        return { ...item, participantIds }
+      }),
+    )
+  }
+
+  function addTicketItem() {
+    setTicketItems((items) => [...items, { id: uid(), title: 'Producto', amount: 0, participantIds: [] }])
+  }
+
+  function removeTicketItem(itemId: string) {
+    setTicketItems((items) => items.filter((item) => item.id !== itemId))
+  }
+
+  async function saveTicketSplit() {
+    if (!currentUser || !activeLedgerId || recordSaving) return
+    const validItems = ticketItems.filter((item) => item.title.trim() && item.amount > 0)
+    if (validItems.length === 0) {
+      setTicketError('No hay productos validos para guardar.')
+      return
+    }
+    if (validItems.some((item) => item.participantIds.length === 0)) {
+      setTicketError('Cada producto necesita al menos una persona.')
+      return
+    }
+
+    setRecordSaving(true)
+    setTicketError('')
+    try {
+      const sharesByActor = new Map<ActorId, number>()
+      validItems.forEach((item) => {
+        const baseCents = Math.round((item.amount * 100) / item.participantIds.length)
+        let remainingCents = Math.round(item.amount * 100)
+        item.participantIds.forEach((actorId, index) => {
+          const cents = index === item.participantIds.length - 1 ? remainingCents : baseCents
+          sharesByActor.set(actorId, Number(((sharesByActor.get(actorId) ?? 0) + cents / 100).toFixed(2)))
+          remainingCents -= cents
+        })
+      })
+      const total = validItems.reduce((sum, item) => sum + item.amount, 0)
+      const record: LedgerRecord = {
+        id: uid(),
+        userId: activeLedgerId,
+        kind: 'split',
+        title: `Ticket ${new Date().toLocaleDateString('es-ES')}`,
+        amount: Number(total.toFixed(2)),
+        currency: 'EUR',
+        date: today,
+        paidBy: ticketPaidBy,
+        participantIds: [...sharesByActor.keys()],
+        shares: Object.fromEntries(sharesByActor),
+        tags: ['ticket'],
+        status: 'por-pagar',
+        repeat: 'none',
+        note: validItems.map((item) => {
+          const names = item.participantIds.map((id) => personName(id, people)).join(', ')
+          return `${item.title}: ${formatMoney(item.amount)} -> ${names}`
+        }).join('\n'),
+        createdAt: new Date().toISOString(),
+      }
+      await persistRecord(record)
+      if (syncMode === 'local') await refreshData()
+      setTicketText('')
+      setTicketItems([])
+      setNotice(`Ticket guardado: ${formatMoney(record.amount)} repartidos.`)
+      setTab('resumen')
+    } catch {
+      setTicketError('No se pudo guardar el ticket. Intentalo otra vez.')
     } finally {
       setRecordSaving(false)
     }
@@ -4081,6 +4250,114 @@ function App() {
                 Guardar directo
               </button>
             </div>
+          </section>
+
+          <section className="panel ticket-assistant">
+            <div className="section-heading compact">
+              <h2>Asistente de ticket</h2>
+              <ReceiptText aria-hidden="true" />
+            </div>
+            <div className="ticket-actions">
+              <label className="secondary-button file-button inline-file">
+                <Camera aria-hidden="true" />
+                {ticketOcrBusy ? 'Leyendo ticket...' : 'Foto del ticket'}
+                <input accept="image/*" capture="environment" disabled={ticketOcrBusy} onChange={handleTicketImage} type="file" />
+              </label>
+              <button className="secondary-button" onClick={analyzeTicketText} type="button">
+                <WandSparkles aria-hidden="true" />
+                Analizar texto
+              </button>
+              <button className="secondary-button" onClick={addTicketItem} type="button">
+                <Plus aria-hidden="true" />
+                Linea
+              </button>
+            </div>
+            <label>
+              Texto del ticket
+              <textarea
+                value={ticketText}
+                onChange={(event) => {
+                  setTicketText(event.target.value)
+                  setTicketError('')
+                }}
+                placeholder={'Pizza 8,50\nCoca cola 2,00\nPatatas 3,20'}
+              />
+            </label>
+            {ticketError && <p className="error-text">{ticketError}</p>}
+            {ticketItems.length > 0 ? (
+              <>
+                <div className="ticket-topline">
+                  <label>
+                    Pago inicial
+                    <select value={ticketPaidBy} onChange={(event) => setTicketPaidBy(event.target.value)}>
+                      <option value={me}>Yo</option>
+                      {people.map((person) => (
+                        <option value={person.id} key={person.id}>
+                          {person.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="share-balance ok">
+                    <span>Total ticket</span>
+                    <strong>{formatMoney(ticketTotals.total)}</strong>
+                    <small>{ticketItems.length} lineas</small>
+                  </div>
+                </div>
+                <div className="ticket-list">
+                  {ticketItems.map((item, index) => (
+                    <article className="ticket-line" key={item.id}>
+                      <div className="ticket-line-fields">
+                        <label>
+                          Producto {index + 1}
+                          <input value={item.title} onChange={(event) => updateTicketItem(item.id, { title: event.target.value })} />
+                        </label>
+                        <label>
+                          Importe
+                          <input
+                            aria-label={`Importe ${item.title}`}
+                            min="0"
+                            onChange={(event) => updateTicketItem(item.id, { amount: Number(event.target.value) })}
+                            step="0.01"
+                            type="number"
+                            value={item.amount}
+                          />
+                        </label>
+                        <button aria-label={`Quitar ${item.title}`} className="icon-button danger" onClick={() => removeTicketItem(item.id)} type="button">
+                          <Trash2 aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="ticket-people" aria-label={`Participantes de ${item.title}`}>
+                        {[{ id: me, name: 'Yo' }, ...people].map((actor) => (
+                          <label className="ticket-person-chip" key={actor.id}>
+                            <input
+                              aria-label={`${actor.name} en ${item.title || `producto ${index + 1}`}`}
+                              checked={item.participantIds.includes(actor.id)}
+                              onChange={() => toggleTicketParticipant(item.id, actor.id)}
+                              type="checkbox"
+                            />
+                            <span>{actor.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="ticket-summary">
+                  {[...ticketTotals.shares.entries()].map(([actorId, value]) => (
+                    <span key={actorId}>
+                      {personName(actorId, people)} <strong>{formatMoney(value)}</strong>
+                    </span>
+                  ))}
+                </div>
+                <button className="primary-button" disabled={recordSaving || ticketItems.length === 0} onClick={saveTicketSplit} type="button">
+                  <CheckCircle2 aria-hidden="true" />
+                  {recordSaving ? 'Guardando...' : 'Guardar ticket dividido'}
+                </button>
+              </>
+            ) : (
+              <p className="info-text">Sube una foto o pega lineas con producto e importe. Luego marcas quien comio cada cosa y se calcula solo.</p>
+            )}
           </section>
 
           <form className="panel form-grid" onSubmit={submitRecord}>

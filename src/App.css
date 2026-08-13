@@ -787,6 +787,92 @@ button:focus-visible {
   position: absolute;
 }
 
+.ticket-assistant {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+}
+
+.ticket-actions,
+.ticket-topline,
+.ticket-line-fields {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ticket-topline {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.55fr);
+}
+
+.ticket-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ticket-line {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.ticket-line-fields {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) 110px 42px;
+}
+
+.ticket-people,
+.ticket-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ticket-person-chip {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.ticket-person-chip input {
+  min-height: auto;
+  width: 16px;
+}
+
+.ticket-person-chip:has(input:checked) {
+  background: #ccfbf1;
+  border-color: #14b8a6;
+  color: #0f766e;
+}
+
+.ticket-summary {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.ticket-summary span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ticket-summary strong {
+  color: var(--text-strong);
+}
+
 .empty-state {
   background: var(--surface);
   border: 1px dashed var(--border-strong);
@@ -2899,6 +2985,22 @@ button:focus-visible {
 
   .check-row input[type='number'] {
     grid-column: 1 / -1;
+  }
+
+  .ticket-actions,
+  .ticket-topline,
+  .ticket-line-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-line-fields .icon-button {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .ticket-person-chip {
+    min-height: 38px;
+    padding: 8px 11px;
   }
 
   .avatar-editor {

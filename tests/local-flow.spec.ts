@@ -313,6 +313,38 @@ test('smart entry creates direct and split movements from natural Spanish', asyn
   assertNoErrors()
 })
 
+test('ticket assistant parses items, assigns people and saves a split record', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Ticket')
+  await addPerson(page, 'Ana Ticket')
+  await addPerson(page, 'Luis Ticket')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Texto del ticket').fill('Pizza 9,00\nCoca cola 2,00\nPatatas 3,00\nTOTAL 14,00')
+  await page.getByRole('button', { name: /Analizar texto/i }).click()
+  await expect(page.getByText(/3 lineas detectadas/i)).toBeVisible()
+
+  await page.getByRole('checkbox', { name: 'Yo en Pizza' }).check()
+  await page.getByRole('checkbox', { name: 'Ana Ticket en Pizza' }).check()
+  await page.getByRole('checkbox', { name: 'Luis Ticket en Pizza' }).check()
+  await page.getByRole('checkbox', { name: 'Ana Ticket en Coca cola' }).check()
+  await page.getByRole('checkbox', { name: 'Luis Ticket en Patatas' }).check()
+
+  await expect(page.locator('.ticket-summary')).toContainText('Ana Ticket')
+  await expect(page.locator('.ticket-summary')).toContainText('Luis Ticket')
+  await page.getByRole('button', { name: /Guardar ticket dividido/i }).click()
+  await expect(page.getByText(/Ticket guardado/i)).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toContainText('11,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Ana Ticket' })).toContainText('5,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Luis Ticket' })).toContainText('6,00')
+
+  await page.getByRole('button', { name: /Historial/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: /Ticket/i })).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: /Ticket/i })).toContainText('Pizza: 9,00')
+  await expect(page.getByRole('article').filter({ hasText: /Ticket/i })).toContainText('11,00')
+  assertNoErrors()
+})
+
 test('history can duplicate a movement as an editable draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Duplicate')
