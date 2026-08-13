@@ -296,7 +296,7 @@ const uid = () => crypto.randomUUID()
 
 function shortPublicId() {
   const alphabet = '23456789abcdefghijkmnopqrstuvwxyz'
-  const values = crypto.getRandomValues(new Uint8Array(12))
+  const values = crypto.getRandomValues(new Uint8Array(8))
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join('')
 }
 
@@ -989,8 +989,9 @@ async function shareWantedPoster(payload: QrPayload, phone?: string) {
   const dataUrl = await buildWantedPosterDataUrl(payload)
   const blob = await (await fetch(dataUrl)).blob()
   const file = new File([blob], posterFilename(payload), { type: 'image/png' })
-  const confirmationLine = payload.tone === 'collect' && payload.url ? `\n\nConfirmar cuando este pagado: ${payload.url}` : ''
-  const text = `${payload.text}${confirmationLine}`
+  const text = payload.tone === 'collect' && payload.url
+    ? `${payload.title}: ${formatMoney(payload.amount)} pendiente.\nConfirmar pago: ${payload.url}`
+    : payload.text
   const shareData: ShareData = { title: appName, text, files: [file] }
   const copiedText = await copyReminderText(text)
   const targetPhone = phone ?? payload.phone
