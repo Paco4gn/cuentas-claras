@@ -390,6 +390,38 @@ function normalizeText(value: string) {
     .toLowerCase()
 }
 
+function nameTokens(value: string) {
+  return normalizeText(value)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+}
+
+function nameMatchScore(query: string, candidate: string) {
+  const normalizedQuery = normalizeText(query).trim()
+  const normalizedCandidate = normalizeText(candidate).trim()
+  if (!normalizedQuery || !normalizedCandidate) return 0
+  if (normalizedQuery === normalizedCandidate) return 100
+  if (normalizedCandidate.startsWith(normalizedQuery) || normalizedQuery.startsWith(normalizedCandidate)) return 85
+  const queryTokens = nameTokens(normalizedQuery)
+  const candidateTokens = nameTokens(normalizedCandidate)
+  if (queryTokens.length > 1 && candidateTokens.length > 1 && queryTokens[0] !== candidateTokens[0]) return 0
+  if (queryTokens.length === 1 && candidateTokens.includes(queryTokens[0])) return candidateTokens[0] === queryTokens[0] ? 70 : 55
+  const matchedTokens = queryTokens.filter((queryToken) =>
+    candidateTokens.some((candidateToken) => candidateToken === queryToken || candidateToken.startsWith(queryToken) || queryToken.startsWith(candidateToken)),
+  )
+  if (!matchedTokens.length) return 0
+  return 30 + Math.round((matchedTokens.length / queryTokens.length) * 45)
+}
+
+function personCandidatesByName(name: string, people: Person[]) {
+  return people
+    .map((person) => ({ person, score: nameMatchScore(name, person.name) }))
+    .filter(({ score }) => score >= 45)
+    .sort((a, b) => b.score - a.score || a.person.name.localeCompare(b.person.name))
+    .map(({ person }) => person)
+}
+
 function addDaysToToday(days: number) {
   const next = new Date(`${today}T00:00:00`)
   next.setDate(next.getDate() + days)
@@ -430,7 +462,11 @@ function personNameFromText(text: string, normalized: string, people: Person[]) 
   ]
   for (const pattern of patterns) {
     const match = text.match(pattern)?.[1]?.trim()
-    if (match) return match.replace(/\s+/g, ' ')
+    if (match) {
+      const cleanedMatch = match.replace(/\s+/g, ' ')
+      const candidates = personCandidatesByName(cleanedMatch, people)
+      return candidates.length === 1 && nameMatchScore(cleanedMatch, candidates[0].name) >= 70 ? candidates[0].name : cleanedMatch
+    }
   }
   return ''
 }
@@ -445,8 +481,8 @@ function splitNamesFromSmartText(text: string, people: Person[]) {
     .map((name) => (normalizeText(name) === 'yo' || normalizeText(name) === 'mi' ? 'me' : name))
   return names.map((name) => {
     if (name === 'me') return name
-    const normalizedName = normalizeText(name)
-    return people.find((person) => normalizeText(person.name) === normalizedName || normalizeText(person.name).includes(normalizedName) || normalizedName.includes(normalizeText(person.name)))?.name ?? name
+    const candidates = personCandidatesByName(name, people)
+    return candidates.length === 1 && nameMatchScore(name, candidates[0].name) >= 70 ? candidates[0].name : name
   })
 }
 
@@ -2198,6 +2234,12 @@ function App() {
     event.preventDefault()
     if (!currentUser || !activeLedgerId || !personForm.name.trim() || personSaving) return
     const previousPerson = people.find((person) => person.id === editingPersonId)
+    const duplicateCandidate = personCandidatesByName(personForm.name, people).find((person) => person.id !== editingPersonId)
+    if (!editingPersonId && duplicateCandidate && nameMatchScore(personForm.name, duplicateCandidate.name) >= 75) {
+      setNotice(`Ya existe una persona parecida: ${duplicateCandidate.name}. La he seleccionado para editarla en vez de crear duplicado.`)
+      startEditPerson(duplicateCandidate)
+      return
+    }
     const person: Person = {
       id: editingPersonId ?? uid(),
       userId: activeLedgerId,
@@ -2293,8 +2335,25 @@ function App() {
 
   async function ensurePersonByName(name: string) {
     const cleanedName = name.trim()
-    const existing = people.find((person) => normalizeText(person.name) === normalizeText(cleanedName))
-    if (existing) return existing
+    const candidates = personCandidatesByName(cleanedName, people)
+    const exact = candidates.find((person) => normalizeText(person.name) === normalizeText(cleanedName))
+    if (exact) return exact
+    if (candidates.length === 1 && nameMatchScore(cleanedName, candidates[0].name) >= 70) return candidates[0]
+    if (candidates.length > 0) {
+      const options = candidates.slice(0, 6)
+      const answer = window.prompt(
+        `He encontrado varias personas para "${cleanedName}". Elige numero o escribe NUEVA:\n${options.map((person, index) => `${index + 1}. ${person.name}`).join('\n')}`,
+        '1',
+      )
+      if (answer === null) throw new Error('person-selection-cancelled')
+      if (normalizeText(answer) === 'nueva') {
+        // Continue and create a new person below.
+      } else {
+        const selectedIndex = Number(answer) - 1
+        if (Number.isInteger(selectedIndex) && options[selectedIndex]) return options[selectedIndex]
+        throw new Error('person-selection-invalid')
+      }
+    }
     const person: Person = {
       id: uid(),
       userId: activeLedgerId,

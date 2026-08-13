@@ -313,6 +313,50 @@ test('smart entry creates direct and split movements from natural Spanish', asyn
   assertNoErrors()
 })
 
+test('smart entry reuses existing people instead of creating duplicate names', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco No Dup')
+  await addPerson(page, 'Ana Repetida')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Dilo o escribelo').fill('Ana me debe 12 por cafe')
+  await page.getByRole('button', { name: /Guardar directo/i }).click()
+  await expect(page.getByText(/Movimiento creado desde entrada inteligente/i)).toBeVisible()
+
+  await page.getByRole('button', { name: /Personas/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Ana Repetida' })).toHaveCount(1)
+  assertNoErrors()
+})
+
+test('smart entry asks which similar person to use before saving', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Pick Person')
+  await addPerson(page, 'Alex casado')
+  await addPerson(page, 'Alex sanchez')
+
+  let asked = false
+  page.on('dialog', async (dialog) => {
+    asked = true
+    expect(dialog.message()).toContain('He encontrado varias personas')
+    expect(dialog.message()).toContain('Alex casado')
+    expect(dialog.message()).toContain('Alex sanchez')
+    await dialog.accept('2')
+  })
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Dilo o escribelo').fill('Alex me debe 20 por cena')
+  await page.getByRole('button', { name: /Guardar directo/i }).click()
+  await expect(page.getByText(/Movimiento creado desde entrada inteligente/i)).toBeVisible()
+  expect(asked).toBe(true)
+
+  await page.getByRole('button', { name: /Resumen/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: 'Alex sanchez' })).toContainText('20,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Alex casado' })).toContainText('0,00')
+  await page.getByRole('button', { name: /Personas/i }).click()
+  await expect(page.getByRole('article').filter({ hasText: /^Alex$/ })).toHaveCount(0)
+  assertNoErrors()
+})
+
 test('ticket assistant parses items, assigns people and saves a split record', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Ticket')
