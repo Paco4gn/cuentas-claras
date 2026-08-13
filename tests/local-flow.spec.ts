@@ -382,6 +382,21 @@ test('ticket assistant handles supermarket lines with tax suffixes and discounts
   assertNoErrors()
 })
 
+test('ticket assistant can upload the provided supermarket ticket image', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Ticket Foto')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.locator('.ticket-actions input[type="file"]').setInputFiles('C:/Users/fgallego/OneDrive - FEVAL - Institución Ferial de Extremadura/DESCARGA/WhatsApp Image 2026-08-12 at 16.38.03.jpeg')
+  await expect(page.getByLabel('Texto del ticket')).toContainText(/CUBITOS|CAFE|TOTAL/i, { timeout: 90_000 })
+  await expect(page.getByText(/Producto 1 de/i)).toBeVisible()
+  await expect(page.getByText(/Total ticket/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /CUBITOS DE HIELO .*Sin asignar/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /FUZE TEA LIMON .*Sin asignar/i })).toBeVisible()
+  await expect(page.getByLabel(/Importe .+/)).not.toHaveValue('0.4')
+  assertNoErrors()
+})
+
 test('history can duplicate a movement as an editable draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Duplicate')
