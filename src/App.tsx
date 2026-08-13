@@ -294,6 +294,7 @@ const kindLabels: Record<RecordKind, string> = {
 const appName = 'CazaMorosos'
 const appSlug = 'cazamorosos'
 const legacyAppSlug = 'cuentas-claras'
+const notificationOpenUrl = `${window.location.origin}${import.meta.env.BASE_URL}?avisos=pagos`
 
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('es-ES', {
@@ -303,6 +304,54 @@ const formatMoney = (value: number) =>
   }).format(value)
 
 const uid = () => crypto.randomUUID()
+
+type NavigatorWithBadging = Navigator & {
+  setAppBadge?: (contents?: number) => Promise<void>
+  clearAppBadge?: () => Promise<void>
+}
+
+type AppNotificationOptions = NotificationOptions & {
+  actions?: { action: string; title: string }[]
+  renotify?: boolean
+}
+
+async function updateAppBadge(count: number) {
+  const navigatorWithBadging = navigator as NavigatorWithBadging
+  try {
+    if (count > 0) await navigatorWithBadging.setAppBadge?.(count)
+    else await navigatorWithBadging.clearAppBadge?.()
+  } catch {
+    // Badging is optional and not exposed by every iOS/browser version.
+  }
+}
+
+async function showAppNotification(title: string, body: string) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return false
+  const options: AppNotificationOptions = {
+    body,
+    badge: `${import.meta.env.BASE_URL}favicon.svg`,
+    icon: `${import.meta.env.BASE_URL}favicon.svg`,
+    tag: 'payment-confirmation',
+    renotify: true,
+    data: { url: notificationOpenUrl },
+  }
+  try {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.ready : null
+    if (registration?.showNotification) {
+      await registration.showNotification(title, options)
+      return true
+    }
+    new Notification(title, options)
+    return true
+  } catch {
+    try {
+      new Notification(title, options)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
 
 function shortPublicId() {
   const alphabet = '23456789abcdefghijkmnopqrstuvwxyz'
@@ -1536,17 +1585,28 @@ function App() {
         const fresh = nextConfirmations.find((confirmation) => !seenConfirmationIds.current.has(confirmation.id))
         nextConfirmations.forEach((confirmation) => seenConfirmationIds.current.add(confirmation.id))
         setPaymentConfirmations(nextConfirmations)
+        updateAppBadge(nextConfirmations.length)
         if (fresh) {
-          const body = `${fresh.payerName} dice que ha pagado ${formatMoney(fresh.amount)}.`
+          const body = `${fresh.payerName} avisa que ha pagado ${formatMoney(fresh.amount)}. Entra para aceptarlo o revisarlo.`
           setNotice(body)
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(appName, { body })
-          }
+          showAppNotification('Pago avisado', body)
         }
       },
       () => setSyncMessage('Firebase: error leyendo confirmaciones de pago'),
     )
   }, [currentUser, syncMode])
+
+  useEffect(() => {
+    if (currentUser) return
+    updateAppBadge(0)
+  }, [currentUser])
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('avisos') !== 'pagos') return
+    setTab('resumen')
+    setNotice('Abriendo pagos avisados.')
+    window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`)
+  }, [])
 
   useEffect(() => {
     if (!notice) return
@@ -3014,16 +3074,19 @@ function App() {
       setNotice('Este navegador no soporta notificaciones web.')
       return
     }
+    if ('serviceWorker' in navigator) {
+      await navigator.serviceWorker.ready.catch(() => undefined)
+    }
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
       setNotice('Notificaciones no activadas.')
       return
     }
     const due = dueRecords[0]
-    new Notification(appName, {
-      body: due ? `${due.title}: ${dueLabel(due)}` : 'Notificaciones activadas para tus vencimientos.',
-    })
-    setNotice('Notificaciones activadas.')
+    const body = due ? `${due.title}: ${dueLabel(due)}` : 'Listo: te avisare cuando alguien confirme que ha pagado.'
+    await showAppNotification(appName, body)
+    await updateAppBadge(paymentConfirmations.length)
+    setNotice('Notificaciones activadas. En iPhone funcionan mejor con la app anadida a pantalla de inicio.')
   }
 
   async function savePin() {
@@ -3174,7 +3237,11 @@ function App() {
       { status, resolvedAt: new Date().toISOString() },
       { merge: true },
     )
-    setPaymentConfirmations((current) => current.filter((item) => item.id !== confirmation.id))
+    setPaymentConfirmations((current) => {
+      const next = current.filter((item) => item.id !== confirmation.id)
+      updateAppBadge(next.length)
+      return next
+    })
   }
 
   async function acceptPaymentConfirmation(confirmation: PaymentConfirmation) {
@@ -4042,7 +4109,11 @@ function App() {
                 <h2>Avisos</h2>
                 <BellRing aria-hidden="true" />
               </div>
-              <p className="panel-copy">Activa avisos del navegador para vencimientos cercanos.</p>
+              <p className="panel-copy">En iPhone, abre CazaMorosos desde el icono de la pantalla de inicio y activa esto. Te avisara cuando alguien pulse que ha pagado.</p>
+              <div className="notification-status">
+                <span>Pagos avisados</span>
+                <strong>{paymentConfirmations.length}</strong>
+              </div>
               <button className="secondary-button full-button" type="button" onClick={enableNotifications}>
                 <BellRing aria-hidden="true" />
                 Activar notificaciones

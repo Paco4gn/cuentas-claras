@@ -372,6 +372,66 @@ test('production Firebase receives public payment confirmations and closes them 
   }
 })
 
+test('production Firebase shows an app notification when a payment confirmation arrives', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const email = `cloud-notify-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`
+  const password = 'Prueba123'
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  await page.addInitScript(() => {
+    class MockNotification {
+      static permission = 'granted'
+      static calls: { title: string; options?: NotificationOptions }[] = []
+      static requestPermission = async () => 'granted' as NotificationPermission
+
+      constructor(title: string, options?: NotificationOptions) {
+        MockNotification.calls.push({ title, options })
+      }
+    }
+    Object.defineProperty(window, 'Notification', { configurable: true, value: MockNotification })
+    Object.defineProperty(navigator, 'setAppBadge', { configurable: true, value: (count?: number) => {
+      window.localStorage.setItem('badge-count', String(count ?? 0))
+      return Promise.resolve()
+    } })
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          showNotification: (title: string, options?: NotificationOptions) => {
+            MockNotification.calls.push({ title, options })
+            return Promise.resolve()
+          },
+        }),
+      },
+    })
+    Object.defineProperty(window, '__notificationCalls', { configurable: true, get: () => MockNotification.calls })
+  })
+
+  try {
+    await createCloudAccount(page, email, password, 'Cloud Notify')
+    await addCloudPerson(page, 'Raul Notify')
+    await saveDebt(page, 'Pago con aviso', '7', 'Raul Notify', 'owes_me')
+
+    await page.getByRole('button', { name: /Resumen/i }).click()
+    await personCard(page, 'Raul Notify').getByLabel('QR de cobro').click()
+    const publicQrHref = await page.getByRole('dialog', { name: /QR de cobro/i }).getByRole('link', { name: /Ver tarjeta/i }).getAttribute('href')
+
+    const publicPage = await context.newPage()
+    await publicPage.goto(publicQrHref!, { waitUntil: 'domcontentloaded' })
+    await publicPage.getByRole('button', { name: /Ya he pagado/i }).click()
+    await expect(publicPage.getByRole('button', { name: /Aviso enviado/i })).toBeVisible({ timeout: 20_000 })
+    await publicPage.close()
+
+    await expect(page.getByRole('heading', { name: /Pagos avisados/i })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem('badge-count'))).toBe('1')
+    const notificationCalls = await page.evaluate(() => (window as typeof window & { __notificationCalls: { title: string; options?: NotificationOptions }[] }).__notificationCalls)
+    expect(notificationCalls.some((call) => call.title === 'Pago avisado' && call.options?.body?.includes('Raul Notify'))).toBe(true)
+  } finally {
+    await context.close().catch(() => undefined)
+    await cleanupCloudUser(email, password)
+  }
+})
+
 test('production WhatsApp poster share includes a short public confirmation link', async ({ browser }) => {
   test.setTimeout(180_000)
   const email = `cloud-share-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`

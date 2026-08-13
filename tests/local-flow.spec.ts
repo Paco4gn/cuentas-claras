@@ -635,6 +635,48 @@ test('advanced tools handle favorites, filters, attachments and recurring record
   assertNoErrors()
 })
 
+test('local dashboard can enable iPhone-style payment notifications', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await page.addInitScript(() => {
+    class MockNotification {
+      static permission = 'default'
+      static calls: { title: string; options?: NotificationOptions }[] = []
+      static requestPermission = async () => {
+        MockNotification.permission = 'granted'
+        return 'granted' as NotificationPermission
+      }
+
+      constructor(title: string, options?: NotificationOptions) {
+        MockNotification.calls.push({ title, options })
+      }
+    }
+    Object.defineProperty(window, 'Notification', { configurable: true, value: MockNotification })
+    Object.defineProperty(navigator, 'setAppBadge', { configurable: true, value: (count?: number) => {
+      window.localStorage.setItem('badge-count', String(count ?? 0))
+      return Promise.resolve()
+    } })
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          showNotification: (title: string, options?: NotificationOptions) => {
+            MockNotification.calls.push({ title, options })
+            return Promise.resolve()
+          },
+        }),
+      },
+    })
+    Object.defineProperty(window, '__notificationCalls', { configurable: true, get: () => MockNotification.calls })
+  })
+
+  await createLocalAccount(page, 'Paco Notify Local')
+  await page.getByRole('button', { name: /Activar notificaciones/i }).click()
+  await expect(page.getByText(/Notificaciones activadas/i)).toBeVisible()
+  const notificationCalls = await page.evaluate(() => (window as typeof window & { __notificationCalls: { title: string; options?: NotificationOptions }[] }).__notificationCalls)
+  expect(notificationCalls.some((call) => call.title === 'CazaMorosos')).toBe(true)
+  assertNoErrors()
+})
+
 test('privacy mode, pin lock and QR collection tools work', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Privacy')

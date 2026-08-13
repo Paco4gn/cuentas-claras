@@ -2072,6 +2072,24 @@ button:focus-visible {
   font-weight: 950;
 }
 
+.notification-status {
+  align-items: center;
+  background: #ecfeff;
+  border: 1px solid rgba(20, 184, 166, 0.32);
+  border-radius: 8px;
+  color: var(--text-soft);
+  display: flex;
+  font-weight: 850;
+  justify-content: space-between;
+  margin: 10px 0;
+  padding: 10px 12px;
+}
+
+.notification-status strong {
+  color: #0f766e;
+  font-size: 1.25rem;
+}
+
 .insight-row,
 .compact-record {
   background: #ffffff;
