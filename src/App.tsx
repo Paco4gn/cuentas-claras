@@ -672,8 +672,9 @@ function compactQrPayload(payload: PublicQrPayload, includePhoto = true): Public
 
 async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string, options: { short?: boolean } = {}) {
   const url = new URL(import.meta.env.BASE_URL, window.location.origin)
-  const qrId = options.short ? shortPublicId() : uid()
-  url.searchParams.set(options.short ? 'p' : 'qrid', qrId)
+  const shouldTryShortUrl = options.short || Boolean(firestore && ownerId)
+  const qrId = shouldTryShortUrl ? shortPublicId() : uid()
+  url.searchParams.set(shouldTryShortUrl ? 'p' : 'qrid', qrId)
   let cloudSaved = false
   try {
     localStorage.setItem(`${publicQrStoragePrefix}${qrId}`, JSON.stringify(payload))
@@ -688,7 +689,11 @@ async function buildPublicQrUrl(payload: PublicQrPayload, ownerId?: string, opti
       // Si Firestore no deja guardar el cartel publico, queda el payload compacto dentro del enlace.
     }
   }
-  if (!options.short || !cloudSaved) {
+  if (!cloudSaved) {
+    if (shouldTryShortUrl) {
+      url.searchParams.delete('p')
+      url.searchParams.set('qrid', qrId)
+    }
     url.searchParams.set('cobro', JSON.stringify(compactQrPayload(payload, !options.short)))
   }
   return url.toString()

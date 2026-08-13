@@ -347,7 +347,9 @@ test('production Firebase receives public payment confirmations and closes them 
     const qrDialog = page.getByRole('dialog', { name: /QR de cobro/i })
     await expect(qrDialog).toBeVisible()
     const publicQrHref = await qrDialog.getByRole('link', { name: /Ver tarjeta/i }).getAttribute('href')
-    expect(publicQrHref).toContain('qrid=')
+    expect(publicQrHref).toMatch(/https:\/\/paco4gn\.github\.io\/cuentas-claras\/\?p=[a-z0-9]{8}$/)
+    expect(publicQrHref).not.toContain('qrid=')
+    expect(publicQrHref).not.toContain('cobro=')
 
     const publicPage = await context.newPage()
     await publicPage.goto(publicQrHref!, { waitUntil: 'domcontentloaded' })
