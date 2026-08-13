@@ -504,9 +504,11 @@ function parseTicketAmount(value: string) {
 
 function parseTicketText(text: string): TicketItem[] {
   const ignoredWords = /\b(total|subtotal|entrega|visa|debit|debito|mastercard|tarjeta|efectivo|cambio|iva|base|ticket|factura|cif|nif|fecha|hora|mesa|pedido|gracias|recibo|venta|autorizacion|operacion|terminal|comercio|avda|avenida|supermercados|lidl|eur)\b/i
-  const ignoredTitle = /^(?:desc\.?|descuento|dto\.?|rebaja|total|subtotal|entrega|cambio|iva|base|eur)$/i
+  const discountTitle = /^(?:desc\.?|descuento|dto\.?|rebaja)$/i
+  const ignoredTitle = /^(?:total|subtotal|entrega|cambio|iva|base|eur)$/i
   const amountPattern = /-?(?:\d|[oO]){1,4}[,.]\d{1,2}/g
-  return text
+  const items: TicketItem[] = []
+  text
     .split(/\r?\n/)
     .map((line) =>
       line
@@ -514,14 +516,14 @@ function parseTicketText(text: string): TicketItem[] {
         .replace(/\s+/g, ' ')
         .trim(),
     )
-    .filter((line) => line.length >= 4 && !ignoredWords.test(line))
-    .map((line) => {
+    .filter((line) => line.length >= 4 && (!ignoredWords.test(line) || /\bdesc\.?|descuento|dto\.?|rebaja\b/i.test(line)))
+    .forEach((line) => {
       const normalizedLine = line
         .replace(/\s+(?:[A-Z]|[A-Z]{1,2}\*)$/i, '')
         .replace(/\s*(?:\u20ac|eur)\s*$/i, '')
         .trim()
       const matches = [...normalizedLine.matchAll(amountPattern)]
-      if (!matches.length) return null
+      if (!matches.length) return
       const lastMatch = matches[matches.length - 1]
       const amount = parseTicketAmount(lastMatch[0])
       const title = normalizedLine
@@ -529,15 +531,20 @@ function parseTicketText(text: string): TicketItem[] {
         .replace(/\s+(?:\d|[oO]){1,4}[,.]\d{1,2}\s*[xX]\s*\d+\s*$/i, '')
         .replace(/\s+\d+\s*[xX]\s*(?:\d|[oO]){1,4}[,.]\d{1,2}\s*$/i, '')
         .replace(/\b(?:\d|[oO]){2,4}x\d{2,4}\b/gi, '')
-        .replace(/^\d+\s*x?\s*/i, '')
+        .replace(/^\d+\s*x\s+/i, '')
         .replace(/^(?:ME|BL|BI|E|Y)\s+/i, '')
         .replace(/[^\p{L}\p{N}\s.,'/-]/gu, '')
         .replace(/\s+/g, ' ')
         .trim()
-      if (!title || amount <= 0 || ignoredTitle.test(title) || ignoredWords.test(title)) return null
-      return { id: uid(), title, amount, participantIds: [] } satisfies TicketItem
+      if (discountTitle.test(title) && items.length) {
+        const previousItem = items[items.length - 1]
+        previousItem.amount = Number(Math.max(0, previousItem.amount + amount).toFixed(2))
+        return
+      }
+      if (!title || amount <= 0 || ignoredTitle.test(title) || ignoredWords.test(title)) return
+      items.push({ id: uid(), title, amount, participantIds: [] })
     })
-    .filter(Boolean) as TicketItem[]
+  return items.filter((item) => item.amount > 0)
 }
 
 function smartDraftSummary(draft: SmartDraft) {

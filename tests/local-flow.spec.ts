@@ -379,6 +379,10 @@ test('ticket assistant handles supermarket lines with tax suffixes and discounts
   await page.getByRole('button', { name: /Siguiente/i }).click()
   await expect(page.getByText(/Producto 2 de 5/i)).toBeVisible()
   await expect(page.getByLabel('Importe CAFE LATTE LIGHT')).toHaveValue('0.95')
+  await page.getByRole('checkbox', { name: 'Yo en CAFE LATTE LIGHT' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByLabel('Importe 7UP ZERO')).toHaveValue('1.29')
+  await expect(page.getByRole('button', { name: /Desc\. -0,40/i })).toHaveCount(0)
   assertNoErrors()
 })
 
