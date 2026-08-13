@@ -535,6 +535,35 @@ test('ticket assistant splits repeated OCR quantities by default and can merge a
   assertNoErrors()
 })
 
+test('settling one person from a ticket keeps the rest of the shared ticket open', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Ticket Settle')
+  await addPerson(page, 'Raul Ticket')
+  await addPerson(page, 'Rosa Ticket')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Texto del ticket').fill('Bebida Raul 9,00\nCena Rosa 6,00\nTOTAL 15,00')
+  await page.getByRole('button', { name: /Analizar texto/i }).click()
+  await page.getByRole('checkbox', { name: 'Raul Ticket en Bebida Raul' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await page.getByRole('checkbox', { name: 'Rosa Ticket en Cena Rosa' }).check()
+  await page.getByRole('button', { name: /Guardar ticket dividido/i }).click()
+
+  await expect(page.getByRole('article').filter({ hasText: 'Raul Ticket' })).toContainText('9,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Rosa Ticket' })).toContainText('6,00')
+
+  await page.getByRole('article').filter({ hasText: 'Raul Ticket' }).getByRole('button', { name: /Liquidar/i }).click()
+  await expect(page.getByText(/Saldo de Raul Ticket liquidado/i)).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Raul Ticket' })).toContainText('0,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Rosa Ticket' })).toContainText('6,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Me deben' }).getByRole('strong')).toHaveText(/6,00\s*€/)
+
+  await page.getByRole('button', { name: /Historial/i }).click()
+  const ticketRow = page.getByRole('article').filter({ hasText: /Ticket/ })
+  await expect(ticketRow.getByText('Parcial')).toBeVisible()
+  assertNoErrors()
+})
+
 test('history can duplicate a movement as an editable draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Duplicate')

@@ -156,6 +156,7 @@ interface LedgerRecord {
   paidBy?: ActorId
   participantIds?: ActorId[]
   shares?: Record<string, number>
+  settledActorIds?: ActorId[]
   personId?: string
   direction?: DebtDirection | PaymentDirection
   tags: string[]
@@ -698,6 +699,22 @@ function recordTouchesPerson(record: LedgerRecord, personId: string) {
   return record.personId === personId || record.paidBy === personId || Boolean(record.participantIds?.includes(personId))
 }
 
+function splitActorsWithOpenBalance(record: LedgerRecord) {
+  if (record.kind !== 'split' || !record.paidBy || !record.participantIds || !record.shares) return []
+  const settled = new Set(record.settledActorIds ?? [])
+  if (record.paidBy === me) {
+    return record.participantIds.filter((participantId) => participantId !== me && !settled.has(participantId) && (record.shares?.[participantId] ?? 0) > 0)
+  }
+  if (record.participantIds.includes(me) && !settled.has(record.paidBy) && (record.shares[me] ?? 0) > 0) return [record.paidBy]
+  return []
+}
+
+function recordHasOpenImpactForPerson(record: LedgerRecord, personId: string) {
+  if (record.status === 'pagado') return false
+  if (record.kind === 'split') return splitActorsWithOpenBalance(record).includes(personId)
+  return record.personId === personId
+}
+
 function nextRepeatDate(date: string, repeat: RepeatRule) {
   const next = new Date(`${date}T00:00:00`)
   if (repeat === 'weekly') next.setDate(next.getDate() + 7)
@@ -782,11 +799,13 @@ function computeSignedByPerson(record: LedgerRecord) {
   }
 
   if (record.kind === 'split' && record.paidBy && record.participantIds && record.shares) {
+    const settled = new Set(record.settledActorIds ?? [])
     if (record.paidBy === me) {
       record.participantIds.forEach((participantId) => {
+        if (settled.has(participantId)) return
         if (participantId !== me) add(participantId, record.shares?.[participantId] ?? 0)
       })
-    } else if (record.participantIds.includes(me)) {
+    } else if (record.participantIds.includes(me) && !settled.has(record.paidBy)) {
       add(record.paidBy, -(record.shares[me] ?? 0))
     }
   }
@@ -1655,7 +1674,7 @@ function App() {
       sortedPeople
         .map((person) => {
           const balance = balances.get(person.id) ?? 0
-          const openRecords = records.filter((record) => record.status !== 'pagado' && recordTouchesPerson(record, person.id))
+          const openRecords = records.filter((record) => recordHasOpenImpactForPerson(record, person.id))
           const overdueCount = openRecords.filter((record) => record.dueDate && daysUntil(record.dueDate) < 0).length
           const pendingCount = openRecords.length
           return { balance, overdueCount, pendingCount, person }
@@ -3121,10 +3140,16 @@ function App() {
     if (!currentUser || !activeLedgerId) return
     const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
     if (balance === 0) return
-    const openPersonRecords = records.filter((record) => record.status !== 'pagado' && recordTouchesPerson(record, person.id))
-    await Promise.all(openPersonRecords.map((record) => persistRecord({ ...record, status: 'pagado' })))
+    const openPersonRecords = records.filter((record) => recordHasOpenImpactForPerson(record, person.id))
+    await Promise.all(openPersonRecords.map((record) => {
+      if (record.kind !== 'split') return persistRecord({ ...record, status: 'pagado' })
+      const settledActorIds = [...new Set([...(record.settledActorIds ?? []), person.id])]
+      const allOpenActors = splitActorsWithOpenBalance(record)
+      const status: RecordStatus = allOpenActors.every((actorId) => settledActorIds.includes(actorId)) ? 'pagado' : 'parcial'
+      return persistRecord({ ...record, settledActorIds, status })
+    }))
     if (syncMode === 'local') await refreshData()
-    setNotice(`Saldo de ${person.name} liquidado.`)
+    setNotice(`Saldo de ${person.name} liquidado. Los tickets compartidos siguen abiertos para quien falte.`)
   }
 
   function switchToConfirmationLedger(confirmation: PaymentConfirmation) {
