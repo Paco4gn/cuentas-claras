@@ -1,4 +1,4 @@
-const cacheName = 'cazamorosos-v4'
+const cacheName = 'cazamorosos-v5'
 const scopeUrl = new URL(self.registration.scope)
 const basePath = scopeUrl.pathname.replace(/\/$/, '')
 const withBase = (path) => `${basePath}${path}`
@@ -20,6 +20,22 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const targetUrl = event.notification.data?.url || withBase('/?avisos=pagos')
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const appClient = clientList.find((client) => client.url.startsWith(self.registration.scope))
+      if (appClient) {
+        appClient.focus()
+        appClient.navigate(targetUrl)
+        return
+      }
+      return self.clients.openWindow(targetUrl)
+    }),
+  )
 })
 
 self.addEventListener('fetch', (event) => {
