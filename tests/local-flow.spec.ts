@@ -401,6 +401,35 @@ test('ticket assistant can upload the provided supermarket ticket image', async 
   assertNoErrors()
 })
 
+test('ticket assistant fixes OCR discounts without minus signs and calculated quantities', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco OCR')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Texto del ticket').fill([
+    'CUBITOS DE HIELO 0,89x 3 2,07 B (¢',
+    'AFE LATTE LIGHT 0,95 B',
+    'UP ZERO 1,69 C 8',
+    'Desc. 0,40',
+    'PALOMITAS MANTEQUIL. 0,79 B',
+    'Desc. -0,14',
+    'TOTAL 22,61',
+  ].join('\n'))
+  await page.getByRole('button', { name: /Analizar texto/i }).click()
+
+  await expect(page.getByLabel('Importe CUBITOS DE HIELO')).toHaveValue('2.67')
+  await page.getByRole('checkbox', { name: 'Yo en CUBITOS DE HIELO' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await page.getByRole('checkbox', { name: 'Yo en AFE LATTE LIGHT' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByLabel('Importe UP ZERO')).toHaveValue('1.29')
+  await page.getByRole('checkbox', { name: 'Yo en UP ZERO' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByLabel('Importe PALOMITAS MANTEQUIL.')).toHaveValue('0.65')
+  await expect(page.getByRole('button', { name: /Desc\. 0,40/i })).toHaveCount(0)
+  assertNoErrors()
+})
+
 test('history can duplicate a movement as an editable draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Duplicate')

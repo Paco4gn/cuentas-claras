@@ -502,6 +502,14 @@ function parseTicketAmount(value: string) {
   return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0
 }
 
+function amountFromUnitQuantity(line: string) {
+  const unitQuantity = line.match(/((?:\d|[oO]){1,4}[,.]\d{1,2})\s*[xX]\s*(\d{1,3})/)
+  if (!unitQuantity) return 0
+  const unitAmount = parseTicketAmount(unitQuantity[1])
+  const quantity = Number(unitQuantity[2])
+  return unitAmount > 0 && quantity > 0 ? Number((unitAmount * quantity).toFixed(2)) : 0
+}
+
 function parseTicketText(text: string): TicketItem[] {
   const ignoredWords = /\b(total|subtotal|entrega|visa|debit|debito|mastercard|tarjeta|efectivo|cambio|iva|base|ticket|factura|cif|nif|fecha|hora|mesa|pedido|gracias|recibo|venta|autorizacion|operacion|terminal|comercio|avda|avenida|supermercados|lidl|eur)\b/i
   const discountTitle = /^(?:desc\.?|descuento|dto\.?|rebaja)$/i
@@ -525,7 +533,8 @@ function parseTicketText(text: string): TicketItem[] {
       const matches = [...normalizedLine.matchAll(amountPattern)]
       if (!matches.length) return
       const lastMatch = matches[matches.length - 1]
-      const amount = parseTicketAmount(lastMatch[0])
+      const printedAmount = parseTicketAmount(lastMatch[0])
+      const calculatedAmount = amountFromUnitQuantity(normalizedLine)
       const title = normalizedLine
         .slice(0, lastMatch.index)
         .replace(/\s+(?:\d|[oO]){1,4}[,.]\d{1,2}\s*[xX]\s*\d+\s*$/i, '')
@@ -538,9 +547,10 @@ function parseTicketText(text: string): TicketItem[] {
         .trim()
       if (discountTitle.test(title) && items.length) {
         const previousItem = items[items.length - 1]
-        previousItem.amount = Number(Math.max(0, previousItem.amount + amount).toFixed(2))
+        previousItem.amount = Number(Math.max(0, previousItem.amount - Math.abs(printedAmount)).toFixed(2))
         return
       }
+      const amount = calculatedAmount || printedAmount
       if (!title || amount <= 0 || ignoredTitle.test(title) || ignoredWords.test(title)) return
       items.push({ id: uid(), title, amount, participantIds: [] })
     })
