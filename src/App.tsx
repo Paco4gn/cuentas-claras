@@ -2496,6 +2496,40 @@ function App() {
     })
   }
 
+  function splitTicketItem(itemId: string) {
+    const item = ticketItems.find((ticketItem) => ticketItem.id === itemId)
+    if (!item) return
+    const partsText = window.prompt('Cuantas partes quieres crear para este producto?', '2')
+    if (partsText === null) return
+    const parts = Math.floor(Number(partsText.replace(',', '.')))
+    if (!Number.isFinite(parts) || parts < 2 || parts > 12) {
+      setTicketError('Elige entre 2 y 12 partes para dividir el producto.')
+      return
+    }
+    const totalCents = Math.round(item.amount * 100)
+    const baseCents = Math.floor(totalCents / parts)
+    let remainingCents = totalCents
+    const splitItems = Array.from({ length: parts }, (_, index) => {
+      const cents = index === parts - 1 ? remainingCents : baseCents
+      remainingCents -= cents
+      return {
+        id: uid(),
+        title: `${item.title} ${index + 1}/${parts}`,
+        amount: Number((cents / 100).toFixed(2)),
+        participantIds: index === 0 ? item.participantIds : [],
+      } satisfies TicketItem
+    }).filter((splitItem) => splitItem.amount > 0)
+    setTicketItems((items) => {
+      const index = items.findIndex((ticketItem) => ticketItem.id === itemId)
+      if (index < 0) return items
+      const nextItems = [...items.slice(0, index), ...splitItems, ...items.slice(index + 1)]
+      setTicketStep(index)
+      return nextItems
+    })
+    setTicketError('')
+    setNotice(`${item.title} dividido en ${splitItems.length} partes. Ahora asigna cada parte a quien corresponda.`)
+  }
+
   function goToNextTicketQuestion() {
     if (!currentTicketItem) return
     if (!currentTicketItem.title.trim() || currentTicketItem.amount <= 0) {
@@ -4446,6 +4480,9 @@ function App() {
                           value={currentTicketItem.amount}
                         />
                       </label>
+                      <button aria-label={`Dividir ${currentTicketItem.title}`} className="icon-button" onClick={() => splitTicketItem(currentTicketItem.id)} title="Dividir linea" type="button">
+                        <Route aria-hidden="true" />
+                      </button>
                       <button aria-label={`Quitar ${currentTicketItem.title}`} className="icon-button danger" onClick={() => removeTicketItem(currentTicketItem.id)} type="button">
                         <Trash2 aria-hidden="true" />
                       </button>

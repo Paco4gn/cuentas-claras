@@ -839,7 +839,7 @@ button:focus-visible {
 
 .ticket-line-fields {
   align-items: end;
-  grid-template-columns: minmax(0, 1fr) 110px 42px;
+  grid-template-columns: minmax(0, 1fr) 110px 42px 42px;
 }
 
 .ticket-people,

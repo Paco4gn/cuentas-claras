@@ -432,6 +432,40 @@ test('ticket assistant fixes OCR discounts without minus signs and calculated qu
   assertNoErrors()
 })
 
+test('ticket assistant can split one repeated product into separately assigned parts', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Ticket Partes')
+  await addPerson(page, 'Ana Botella')
+  await addPerson(page, 'Luis Botella')
+
+  page.on('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Cuantas partes')
+    await dialog.accept('2')
+  })
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Texto del ticket').fill('Botella agua 4,00\nTOTAL 4,00')
+  await page.getByRole('button', { name: /Analizar texto/i }).click()
+  await page.getByRole('button', { name: /Dividir Botella agua/i }).click()
+  await expect(page.getByText(/Producto 1 de 2/i)).toBeVisible()
+  await expect(page.getByLabel('Importe Botella agua 1/2')).toHaveValue('2')
+  await page.getByRole('checkbox', { name: 'Ana Botella en Botella agua 1/2' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByLabel('Importe Botella agua 2/2')).toHaveValue('2')
+  await page.getByRole('checkbox', { name: 'Yo en Botella agua 2/2' }).check()
+  await page.getByRole('checkbox', { name: 'Luis Botella en Botella agua 2/2' }).check()
+
+  await expect(page.locator('.ticket-summary')).toContainText('Ana Botella')
+  await expect(page.locator('.ticket-summary')).toContainText('2,00')
+  await expect(page.locator('.ticket-summary')).toContainText('Luis Botella')
+  await expect(page.locator('.ticket-summary')).toContainText('1,00')
+  await page.getByRole('button', { name: /Guardar ticket dividido/i }).click()
+  await expect(page.getByText(/Ticket guardado/i)).toBeVisible()
+  await expect(page.getByRole('article').filter({ hasText: 'Ana Botella' })).toContainText('2,00')
+  await expect(page.getByRole('article').filter({ hasText: 'Luis Botella' })).toContainText('1,00')
+  assertNoErrors()
+})
+
 test('history can duplicate a movement as an editable draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Duplicate')
