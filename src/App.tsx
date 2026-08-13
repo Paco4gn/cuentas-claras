@@ -497,23 +497,42 @@ function parseSmartText(text: string, people: Person[]): SmartDraft | { error: s
 }
 
 function parseTicketAmount(value: string) {
-  const normalized = value.replace(/\s/g, '').replace(',', '.')
+  const normalized = value.replace(/\s/g, '').replace(/[oO](?=[,.]\d)/g, '0').replace(',', '.')
   const amount = Number(normalized)
   return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0
 }
 
 function parseTicketText(text: string): TicketItem[] {
-  const ignoredWords = /\b(total|subtotal|visa|mastercard|tarjeta|efectivo|cambio|iva|base|ticket|factura|cif|nif|fecha|hora|mesa|pedido|gracias|recibo)\b/i
+  const ignoredWords = /\b(total|subtotal|entrega|visa|debit|debito|mastercard|tarjeta|efectivo|cambio|iva|base|ticket|factura|cif|nif|fecha|hora|mesa|pedido|gracias|recibo|venta|autorizacion|operacion|terminal|comercio|avda|avenida|supermercados|lidl|eur)\b/i
+  const ignoredTitle = /^(?:desc\.?|descuento|dto\.?|rebaja|total|subtotal|entrega|cambio|iva|base|eur)$/i
+  const amountPattern = /-?(?:\d|[oO]){1,4}[,.]\d{1,2}/g
   return text
     .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .map((line) =>
+      line
+        .replace(/[|]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
     .filter((line) => line.length >= 4 && !ignoredWords.test(line))
     .map((line) => {
-      const match = line.match(/(.+?)\s+(-?\d{1,4}(?:[,.]\d{2}))\s*(?:€|eur)?\s*$/i)
-      if (!match) return null
-      const amount = parseTicketAmount(match[2])
-      const title = match[1].replace(/^\d+\s*x?\s*/i, '').replace(/[^\p{L}\p{N}\s.,'/-]/gu, '').trim()
-      if (!title || amount <= 0) return null
+      const normalizedLine = line
+        .replace(/\s+(?:[A-Z]|[A-Z]{1,2}\*)$/i, '')
+        .replace(/\s*(?:\u20ac|eur)\s*$/i, '')
+        .trim()
+      const matches = [...normalizedLine.matchAll(amountPattern)]
+      if (!matches.length) return null
+      const lastMatch = matches[matches.length - 1]
+      const amount = parseTicketAmount(lastMatch[0])
+      const title = normalizedLine
+        .slice(0, lastMatch.index)
+        .replace(/\s+(?:\d|[oO]){1,4}[,.]\d{1,2}\s*[xX]\s*\d+\s*$/i, '')
+        .replace(/\s+\d+\s*[xX]\s*(?:\d|[oO]){1,4}[,.]\d{1,2}\s*$/i, '')
+        .replace(/^\d+\s*x?\s*/i, '')
+        .replace(/[^\p{L}\p{N}\s.,'/-]/gu, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (!title || amount <= 0 || ignoredTitle.test(title) || ignoredWords.test(title)) return null
       return { id: uid(), title, amount, participantIds: [] } satisfies TicketItem
     })
     .filter(Boolean) as TicketItem[]

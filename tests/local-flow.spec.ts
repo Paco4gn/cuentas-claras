@@ -351,6 +351,37 @@ test('ticket assistant parses items, assigns people and saves a split record', a
   assertNoErrors()
 })
 
+test('ticket assistant handles supermarket lines with tax suffixes and discounts', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Lidl')
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Texto del ticket').fill([
+    'LIDL SUPERMERCADOS S.A.U.',
+    'Avda. de Madrid n 2',
+    'CUBITOS DE HIELO 0,89x 3 2,67 B',
+    'CAFE LATTE LIGHT 0,95 B',
+    '7UP ZERO 1,69 C',
+    'Desc. -0,40',
+    'CROISS. CHOCO 0,59x 2 1,18 B',
+    'FUZE TEA LIMON 1,99x 2 3,98 C',
+    'TOTAL 10,47',
+    'ENTREGA 10,47',
+  ].join('\n'))
+  await page.getByRole('button', { name: /Analizar texto/i }).click()
+
+  await expect(page.getByText(/5 lineas detectadas/i)).toBeVisible()
+  await expect(page.getByText(/Producto 1 de 5/i)).toBeVisible()
+  await expect(page.getByLabel('Importe CUBITOS DE HIELO')).toHaveValue('2.67')
+  await expect(page.getByRole('checkbox', { name: 'Yo en CUBITOS DE HIELO' })).toBeVisible()
+  await expect(page.getByLabel('Importe CUBITOS DE HIELO')).not.toHaveValue('0.4')
+  await page.getByRole('checkbox', { name: 'Yo en CUBITOS DE HIELO' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByText(/Producto 2 de 5/i)).toBeVisible()
+  await expect(page.getByLabel('Importe CAFE LATTE LIGHT')).toHaveValue('0.95')
+  assertNoErrors()
+})
+
 test('history can duplicate a movement as an editable draft', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Duplicate')
