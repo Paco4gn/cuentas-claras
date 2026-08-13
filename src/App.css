@@ -806,18 +806,35 @@ button:focus-visible {
   grid-template-columns: minmax(0, 1fr) minmax(160px, 0.55fr);
 }
 
-.ticket-list {
-  display: grid;
-  gap: 10px;
-}
-
-.ticket-line {
+.ticket-question {
   background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: 8px;
   display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.ticket-question h3 {
+  color: var(--text-strong);
+  font-size: 20px;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.ticket-progress {
+  align-items: center;
+  display: flex;
   gap: 10px;
-  padding: 10px;
+  justify-content: space-between;
+}
+
+.ticket-progress span,
+.ticket-progress strong {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
 }
 
 .ticket-line-fields {
@@ -854,6 +871,53 @@ button:focus-visible {
   background: #ccfbf1;
   border-color: #14b8a6;
   color: #0f766e;
+}
+
+.ticket-person-chip.large {
+  font-size: 13px;
+  min-height: 42px;
+  padding: 9px 12px;
+}
+
+.ticket-review {
+  display: grid;
+  gap: 8px;
+}
+
+.ticket-review button {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-strong);
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px;
+  text-align: left;
+}
+
+.ticket-review button.active {
+  border-color: #14b8a6;
+  box-shadow: inset 3px 0 0 #14b8a6;
+}
+
+.ticket-review span {
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-review strong {
+  font-weight: 900;
+}
+
+.ticket-review small {
+  color: var(--text-soft);
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .ticket-summary {
@@ -2996,6 +3060,11 @@ button:focus-visible {
   .ticket-line-fields .icon-button {
     justify-self: stretch;
     width: 100%;
+  }
+
+  .ticket-progress {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .ticket-person-chip {

@@ -1179,6 +1179,7 @@ function App() {
   const [ticketText, setTicketText] = useState('')
   const [ticketItems, setTicketItems] = useState<TicketItem[]>([])
   const [ticketPaidBy, setTicketPaidBy] = useState<ActorId>(me)
+  const [ticketStep, setTicketStep] = useState(0)
   const [ticketOcrBusy, setTicketOcrBusy] = useState(false)
   const [ticketError, setTicketError] = useState('')
   const [balanceSearch, setBalanceSearch] = useState('')
@@ -1557,6 +1558,9 @@ function App() {
     })
     return { total: Number(total.toFixed(2)), shares: totals }
   }, [ticketItems])
+  const currentTicketItem = ticketItems[ticketStep] ?? null
+  const ticketAssignedCount = ticketItems.filter((item) => item.participantIds.length > 0).length
+  const ticketReadyToSave = ticketItems.length > 0 && ticketItems.every((item) => item.title.trim() && item.amount > 0 && item.participantIds.length > 0)
 
   const tagStats = useMemo(() => {
     const totals = new Map<string, number>()
@@ -2337,11 +2341,13 @@ function App() {
     if (items.length === 0) {
       setTicketError('No he detectado productos con importe. Corrige el texto o usa lineas tipo "Pizza 8,50".')
       setTicketItems([])
+      setTicketStep(0)
       return
     }
     setTicketItems(items)
+    setTicketStep(0)
     setTicketError('')
-    setNotice(`${items.length} lineas detectadas. Marca quien comparte cada producto.`)
+    setNotice(`${items.length} lineas detectadas. Te voy preguntando una por una.`)
   }
 
   async function handleTicketImage(event: React.ChangeEvent<HTMLInputElement>) {
@@ -2358,7 +2364,8 @@ function App() {
       setTicketText(text)
       const items = parseTicketText(text)
       setTicketItems(items)
-      setNotice(items.length ? `${items.length} lineas leidas del ticket.` : 'He leido el ticket, pero toca corregir el texto.')
+      setTicketStep(0)
+      setNotice(items.length ? `${items.length} lineas leidas del ticket. Te voy preguntando una por una.` : 'He leido el ticket, pero toca corregir el texto.')
       if (!items.length) setTicketError('No he detectado productos claros. Revisa el texto extraido y pulsa Analizar.')
     } catch {
       setTicketError('No pude leer la foto. Puedes pegar el texto del ticket y analizarlo.')
@@ -2384,11 +2391,33 @@ function App() {
   }
 
   function addTicketItem() {
-    setTicketItems((items) => [...items, { id: uid(), title: 'Producto', amount: 0, participantIds: [] }])
+    setTicketItems((items) => {
+      const nextItems = [...items, { id: uid(), title: 'Producto', amount: 0, participantIds: [] }]
+      setTicketStep(nextItems.length - 1)
+      return nextItems
+    })
   }
 
   function removeTicketItem(itemId: string) {
-    setTicketItems((items) => items.filter((item) => item.id !== itemId))
+    setTicketItems((items) => {
+      const nextItems = items.filter((item) => item.id !== itemId)
+      setTicketStep((step) => Math.min(step, Math.max(nextItems.length - 1, 0)))
+      return nextItems
+    })
+  }
+
+  function goToNextTicketQuestion() {
+    if (!currentTicketItem) return
+    if (!currentTicketItem.title.trim() || currentTicketItem.amount <= 0) {
+      setTicketError('Corrige el producto y el importe antes de seguir.')
+      return
+    }
+    if (currentTicketItem.participantIds.length === 0) {
+      setTicketError('Marca al menos una persona para este producto.')
+      return
+    }
+    setTicketError('')
+    setTicketStep((step) => Math.min(step + 1, ticketItems.length - 1))
   }
 
   async function saveTicketSplit() {
@@ -4304,43 +4333,63 @@ function App() {
                     <small>{ticketItems.length} lineas</small>
                   </div>
                 </div>
-                <div className="ticket-list">
-                  {ticketItems.map((item, index) => (
-                    <article className="ticket-line" key={item.id}>
-                      <div className="ticket-line-fields">
-                        <label>
-                          Producto {index + 1}
-                          <input value={item.title} onChange={(event) => updateTicketItem(item.id, { title: event.target.value })} />
-                        </label>
-                        <label>
-                          Importe
+                {currentTicketItem && (
+                  <article className="ticket-question">
+                    <div className="ticket-progress">
+                      <span>Producto {ticketStep + 1} de {ticketItems.length}</span>
+                      <strong>{ticketAssignedCount}/{ticketItems.length} asignados</strong>
+                    </div>
+                    <h3>¿De quien es este producto?</h3>
+                    <div className="ticket-line-fields">
+                      <label>
+                        Producto
+                        <input value={currentTicketItem.title} onChange={(event) => updateTicketItem(currentTicketItem.id, { title: event.target.value })} />
+                      </label>
+                      <label>
+                        Importe
+                        <input
+                          aria-label={`Importe ${currentTicketItem.title}`}
+                          min="0"
+                          onChange={(event) => updateTicketItem(currentTicketItem.id, { amount: Number(event.target.value) })}
+                          step="0.01"
+                          type="number"
+                          value={currentTicketItem.amount}
+                        />
+                      </label>
+                      <button aria-label={`Quitar ${currentTicketItem.title}`} className="icon-button danger" onClick={() => removeTicketItem(currentTicketItem.id)} type="button">
+                        <Trash2 aria-hidden="true" />
+                      </button>
+                    </div>
+                    <div className="ticket-people" aria-label={`Participantes de ${currentTicketItem.title}`}>
+                      {[{ id: me, name: 'Yo' }, ...people].map((actor) => (
+                        <label className="ticket-person-chip large" key={actor.id}>
                           <input
-                            aria-label={`Importe ${item.title}`}
-                            min="0"
-                            onChange={(event) => updateTicketItem(item.id, { amount: Number(event.target.value) })}
-                            step="0.01"
-                            type="number"
-                            value={item.amount}
+                            aria-label={`${actor.name} en ${currentTicketItem.title || `producto ${ticketStep + 1}`}`}
+                            checked={currentTicketItem.participantIds.includes(actor.id)}
+                            onChange={() => toggleTicketParticipant(currentTicketItem.id, actor.id)}
+                            type="checkbox"
                           />
+                          <span>{actor.name}</span>
                         </label>
-                        <button aria-label={`Quitar ${item.title}`} className="icon-button danger" onClick={() => removeTicketItem(item.id)} type="button">
-                          <Trash2 aria-hidden="true" />
-                        </button>
-                      </div>
-                      <div className="ticket-people" aria-label={`Participantes de ${item.title}`}>
-                        {[{ id: me, name: 'Yo' }, ...people].map((actor) => (
-                          <label className="ticket-person-chip" key={actor.id}>
-                            <input
-                              aria-label={`${actor.name} en ${item.title || `producto ${index + 1}`}`}
-                              checked={item.participantIds.includes(actor.id)}
-                              onChange={() => toggleTicketParticipant(item.id, actor.id)}
-                              type="checkbox"
-                            />
-                            <span>{actor.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </article>
+                      ))}
+                    </div>
+                    <div className="button-row">
+                      <button className="secondary-button" disabled={ticketStep === 0} onClick={() => setTicketStep((step) => Math.max(step - 1, 0))} type="button">
+                        Anterior
+                      </button>
+                      <button className="secondary-button" disabled={ticketStep >= ticketItems.length - 1} onClick={goToNextTicketQuestion} type="button">
+                        Siguiente
+                      </button>
+                    </div>
+                  </article>
+                )}
+                <div className="ticket-review">
+                  {ticketItems.map((item, index) => (
+                    <button className={index === ticketStep ? 'active' : ''} key={item.id} onClick={() => setTicketStep(index)} type="button">
+                      <span>{item.title || `Producto ${index + 1}`}</span>
+                      <strong>{formatMoney(item.amount)}</strong>
+                      <small>{item.participantIds.length ? item.participantIds.map((id) => personName(id, people)).join(', ') : 'Sin asignar'}</small>
+                    </button>
                   ))}
                 </div>
                 <div className="ticket-summary">
@@ -4350,7 +4399,7 @@ function App() {
                     </span>
                   ))}
                 </div>
-                <button className="primary-button" disabled={recordSaving || ticketItems.length === 0} onClick={saveTicketSplit} type="button">
+                <button className="primary-button" disabled={recordSaving || !ticketReadyToSave} onClick={saveTicketSplit} type="button">
                   <CheckCircle2 aria-hidden="true" />
                   {recordSaving ? 'Guardando...' : 'Guardar ticket dividido'}
                 </button>

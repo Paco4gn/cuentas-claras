@@ -323,11 +323,17 @@ test('ticket assistant parses items, assigns people and saves a split record', a
   await page.getByLabel('Texto del ticket').fill('Pizza 9,00\nCoca cola 2,00\nPatatas 3,00\nTOTAL 14,00')
   await page.getByRole('button', { name: /Analizar texto/i }).click()
   await expect(page.getByText(/3 lineas detectadas/i)).toBeVisible()
+  await expect(page.getByText(/Producto 1 de 3/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: /De quien es este producto/i })).toBeVisible()
 
   await page.getByRole('checkbox', { name: 'Yo en Pizza' }).check()
   await page.getByRole('checkbox', { name: 'Ana Ticket en Pizza' }).check()
   await page.getByRole('checkbox', { name: 'Luis Ticket en Pizza' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByText(/Producto 2 de 3/i)).toBeVisible()
   await page.getByRole('checkbox', { name: 'Ana Ticket en Coca cola' }).check()
+  await page.getByRole('button', { name: /Siguiente/i }).click()
+  await expect(page.getByText(/Producto 3 de 3/i)).toBeVisible()
   await page.getByRole('checkbox', { name: 'Luis Ticket en Patatas' }).check()
 
   await expect(page.locator('.ticket-summary')).toContainText('Ana Ticket')
