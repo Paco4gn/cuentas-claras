@@ -397,6 +397,8 @@ test('ticket assistant can upload the provided supermarket ticket image', async 
   await expect(page.getByText(/Total ticket/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /CUBITOS DE HIELO .*Sin asignar/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /FUZE TEA LIMON .*Sin asignar/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /CUBITOS DE HIELO 2,67/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /PALOMITAS MANTEQUIL\. 0,65/i })).toBeVisible()
   await expect(page.getByLabel(/Importe .+/)).not.toHaveValue('0.4')
   assertNoErrors()
 })

@@ -510,6 +510,16 @@ function amountFromUnitQuantity(line: string) {
   return unitAmount > 0 && quantity > 0 ? Number((unitAmount * quantity).toFixed(2)) : 0
 }
 
+function parseTicketTotal(text: string) {
+  const totalLine = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .find((line) => /\b(total|entrega)\b/i.test(line))
+  if (!totalLine) return 0
+  const amounts = [...totalLine.matchAll(/(?:\d|[oO]){1,4}[,.]\d{1,2}/g)]
+  return amounts.length ? parseTicketAmount(amounts[amounts.length - 1][0]) : 0
+}
+
 function parseTicketText(text: string): TicketItem[] {
   const ignoredWords = /\b(total|subtotal|entrega|visa|debit|debito|mastercard|tarjeta|efectivo|cambio|iva|base|ticket|factura|cif|nif|fecha|hora|mesa|pedido|gracias|recibo|venta|autorizacion|operacion|terminal|comercio|avda|avenida|supermercados|lidl|eur)\b/i
   const discountTitle = /^(?:desc\.?|descuento|dto\.?|rebaja)$/i
@@ -555,6 +565,43 @@ function parseTicketText(text: string): TicketItem[] {
       items.push({ id: uid(), title, amount, participantIds: [] })
     })
   return items.filter((item) => item.amount > 0)
+}
+
+function ticketParseScore(text: string, items: TicketItem[]) {
+  const total = parseTicketTotal(text)
+  const itemTotal = items.reduce((sum, item) => sum + item.amount, 0)
+  const totalScore = total > 0 ? Math.max(0, 8 - Math.abs(total - itemTotal)) : 0
+  return items.length * 10 + totalScore
+}
+
+function bestTicketOcrResult(results: string[]) {
+  return results
+    .map((text) => ({ text, items: parseTicketText(text) }))
+    .sort((a, b) => ticketParseScore(b.text, b.items) - ticketParseScore(a.text, a.items))[0]
+}
+
+async function preprocessTicketImage(file: File) {
+  const bitmap = await createImageBitmap(file)
+  const maxWidth = 1800
+  const scale = Math.max(1, Math.min(3, maxWidth / bitmap.width))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bitmap.width * scale)
+  canvas.height = Math.round(bitmap.height * scale)
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) return file
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  const image = context.getImageData(0, 0, canvas.width, canvas.height)
+  const data = image.data
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114
+    const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.75 + 150))
+    const value = contrasted > 172 ? 255 : contrasted < 92 ? 0 : contrasted
+    data[i] = value
+    data[i + 1] = value
+    data[i + 2] = value
+  }
+  context.putImageData(image, 0, 0)
+  return new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob ?? file), 'image/png'))
 }
 
 function smartDraftSummary(draft: SmartDraft) {
@@ -2396,11 +2443,16 @@ function App() {
     try {
       const { createWorker } = await import('tesseract.js')
       const worker = await createWorker('spa+eng')
-      const result = await worker.recognize(file)
+      const enhancedImage = await preprocessTicketImage(file)
+      const [originalResult, enhancedResult] = await Promise.all([
+        worker.recognize(file),
+        worker.recognize(enhancedImage),
+      ])
       await worker.terminate()
-      const text = result.data.text.trim()
+      const bestResult = bestTicketOcrResult([originalResult.data.text.trim(), enhancedResult.data.text.trim()])
+      const text = bestResult?.text ?? ''
       setTicketText(text)
-      const items = parseTicketText(text)
+      const items = bestResult?.items ?? []
       setTicketItems(items)
       setTicketStep(0)
       setNotice(items.length ? `${items.length} lineas leidas del ticket. Te voy preguntando una por una.` : 'He leido el ticket, pero toca corregir el texto.')
