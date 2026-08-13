@@ -4289,8 +4289,8 @@ function App() {
             <div className="ticket-actions">
               <label className="secondary-button file-button inline-file">
                 <Camera aria-hidden="true" />
-                {ticketOcrBusy ? 'Leyendo ticket...' : 'Foto del ticket'}
-                <input accept="image/*" capture="environment" disabled={ticketOcrBusy} onChange={handleTicketImage} type="file" />
+                {ticketOcrBusy ? 'Leyendo ticket...' : 'Subir ticket'}
+                <input accept="image/*" disabled={ticketOcrBusy} onChange={handleTicketImage} type="file" />
               </label>
               <button className="secondary-button" onClick={analyzeTicketText} type="button">
                 <WandSparkles aria-hidden="true" />
