@@ -1501,6 +1501,64 @@ button:focus-visible {
   font-size: 20px;
 }
 
+.follow-chip {
+  align-items: center;
+  border: 1px solid #bae6fd;
+  border-radius: 999px;
+  color: #075985;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  gap: 5px;
+  justify-self: start;
+  line-height: 1.1;
+  margin-top: 6px;
+  min-height: 24px;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.follow-chip.avisado {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.follow-chip.prometio {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #047857;
+}
+
+.follow-chip.revisar {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.follow-chip.bloqueado {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.person-follow-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.person-follow-box p {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 750;
+  margin: 8px 0 0;
+}
+
 .person-sheet-actions {
   display: flex;
   flex-wrap: wrap;

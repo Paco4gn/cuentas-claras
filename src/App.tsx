@@ -82,6 +82,7 @@ type RepeatRule = 'none' | 'weekly' | 'monthly'
 type AuthMode = 'login' | 'register' | 'recover'
 type SyncMode = 'cloud' | 'local'
 type ReminderTone = 'suave' | 'directo' | 'ultimo' | 'broma'
+type PersonFollowStatus = 'normal' | 'avisado' | 'prometio' | 'revisar' | 'bloqueado'
 
 interface User {
   id: string
@@ -130,6 +131,10 @@ interface Person {
   avatar?: string
   avatarStoragePath?: string
   favorite?: boolean
+  followStatus?: PersonFollowStatus
+  promisedDate?: string
+  lastReminderAt?: string
+  lastPaymentAt?: string
   createdAt: string
 }
 
@@ -297,6 +302,14 @@ const statusLabels: Record<RecordStatus, string> = {
   'por-pagar': 'Por pagar',
   parcial: 'Parcial',
   pagado: 'Pagado',
+}
+
+const followStatusLabels: Record<PersonFollowStatus, string> = {
+  normal: 'Normal',
+  avisado: 'Avisado',
+  prometio: 'Prometio pagar',
+  revisar: 'Revisar',
+  bloqueado: 'No insistir',
 }
 
 const kindLabels: Record<RecordKind, string> = {
@@ -1381,7 +1394,7 @@ function App() {
   const [personFilter, setPersonFilter] = useState('todos')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '', avatar: '' })
+  const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '', avatar: '', followStatus: 'normal' as PersonFollowStatus, promisedDate: '' })
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [kind, setKind] = useState<RecordKind>('split')
   const [title, setTitle] = useState('')
@@ -1822,6 +1835,27 @@ function App() {
   const selectedPersonRecords = useMemo(
     () => (selectedPerson ? records.filter((record) => recordTouchesPerson(record, selectedPerson.id)) : []),
     [records, selectedPerson],
+  )
+  const selectedPersonOpenRecords = useMemo(
+    () => (selectedPerson ? selectedPersonRecords.filter((record) => recordHasOpenImpactForPerson(record, selectedPerson.id)) : []),
+    [selectedPerson, selectedPersonRecords],
+  )
+  const selectedPersonTimeline = useMemo(
+    () =>
+      selectedPerson
+        ? selectedPersonRecords.slice(0, 8).map((record) => {
+          const impact = personRecordImpact(record, selectedPerson.id)
+          return {
+            id: record.id,
+            title: record.title,
+            date: record.date,
+            impact,
+            status: statusLabels[record.status],
+            detail: `${kindLabels[record.kind]} - ${formatMoney(impact)}`,
+          }
+        })
+        : [],
+    [selectedPerson, selectedPersonRecords],
   )
   const selectedPersonTags = useMemo(() => {
     const totals = new Map<string, number>()
@@ -2372,6 +2406,10 @@ function App() {
       notes: personForm.notes.trim(),
       avatar: personForm.avatar,
       avatarStoragePath: previousPerson?.avatarStoragePath,
+      followStatus: personForm.followStatus,
+      promisedDate: personForm.promisedDate || undefined,
+      lastReminderAt: previousPerson?.lastReminderAt,
+      lastPaymentAt: previousPerson?.lastPaymentAt,
       createdAt: previousPerson?.createdAt ?? new Date().toISOString(),
     }
     setPersonSaving(true)
@@ -2379,7 +2417,7 @@ function App() {
       const personToSave = await personWithCloudAvatar(person)
       await removeOldCloudAvatarIfNeeded(previousPerson, personToSave)
       await persistPerson(personToSave)
-      setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
+      setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '', followStatus: 'normal', promisedDate: '' })
       setEditingPersonId(null)
       setPersonId(personToSave.id)
       setParticipantIds((current) => [...new Set([...current, personToSave.id])])
@@ -2393,13 +2431,21 @@ function App() {
   }
 
   function startEditPerson(person: Person) {
-    setPersonForm({ name: person.name, phone: person.phone, email: person.email, notes: person.notes, avatar: person.avatar ?? '' })
+    setPersonForm({
+      name: person.name,
+      phone: person.phone,
+      email: person.email,
+      notes: person.notes,
+      avatar: person.avatar ?? '',
+      followStatus: person.followStatus ?? 'normal',
+      promisedDate: person.promisedDate ?? '',
+    })
     setEditingPersonId(person.id)
     setTab('personas')
   }
 
   function resetPersonForm() {
-    setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '' })
+    setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '', followStatus: 'normal', promisedDate: '' })
     setEditingPersonId(null)
   }
 
@@ -3264,6 +3310,64 @@ function App() {
     }))
     if (syncMode === 'local') await refreshData()
     setNotice(`Saldo de ${person.name} liquidado. Los tickets compartidos siguen abiertos para quien falte.`)
+  }
+
+  async function updatePersonFollow(person: Person, updates: Partial<Pick<Person, 'followStatus' | 'promisedDate' | 'lastReminderAt' | 'lastPaymentAt'>>) {
+    const nextPerson = { ...person, ...updates }
+    await persistPerson(nextPerson)
+    if (syncMode === 'local') await refreshData()
+    setNotice(`Seguimiento de ${person.name} actualizado.`)
+  }
+
+  async function markPersonReminded(person: Person) {
+    await updatePersonFollow(person, { followStatus: 'avisado', lastReminderAt: new Date().toISOString() })
+  }
+
+  async function setPersonPromise(person: Person) {
+    const promisedDate = window.prompt(`Cuando promete pagar ${person.name}? Usa AAAA-MM-DD o deja vacio para hoy.`, today)
+    if (promisedDate === null) return
+    await updatePersonFollow(person, {
+      followStatus: 'prometio',
+      promisedDate: promisedDate.trim() || today,
+      lastReminderAt: new Date().toISOString(),
+    })
+  }
+
+  async function registerPartialPayment(person: Person) {
+    if (!currentUser || !activeLedgerId) return
+    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    if (Math.abs(balance) <= 0.009) {
+      setNotice(`${person.name} esta a cero.`)
+      return
+    }
+    const defaultAmount = Math.abs(balance).toFixed(2).replace('.', ',')
+    const rawAmount = window.prompt(`Cuanto ha pagado ${person.name}?`, defaultAmount)
+    if (rawAmount === null) return
+    const parsedAmount = Number(rawAmount.replace(',', '.'))
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setNotice('Importe de pago no valido.')
+      return
+    }
+    const amountToSave = Number(Math.min(parsedAmount, Math.abs(balance)).toFixed(2))
+    const paymentRecord: LedgerRecord = {
+      id: uid(),
+      userId: activeLedgerId,
+      kind: 'payment',
+      title: balance > 0 ? `Pago parcial de ${person.name}` : `Pago parcial a ${person.name}`,
+      amount: amountToSave,
+      currency: 'EUR',
+      date: today,
+      personId: person.id,
+      direction: balance > 0 ? 'person_paid_me' : 'i_paid_person',
+      tags: ['pago', 'parcial'],
+      status: 'por-pagar',
+      note: `Pago parcial registrado desde la ficha de ${person.name}.`,
+      createdAt: new Date().toISOString(),
+    }
+    await persistRecord(paymentRecord)
+    await updatePersonFollow(person, { followStatus: amountToSave >= Math.abs(balance) ? 'normal' : 'revisar', lastPaymentAt: new Date().toISOString() })
+    if (syncMode === 'local') await refreshData()
+    setNotice(`Pago parcial de ${formatMoney(amountToSave)} registrado para ${person.name}.`)
   }
 
   function switchToConfirmationLedger(confirmation: PaymentConfirmation) {
@@ -4489,6 +4593,20 @@ function App() {
               Email
               <input value={personForm.email} onChange={(event) => setPersonForm({ ...personForm, email: event.target.value })} type="email" />
             </label>
+            <div className="form-row two">
+              <label>
+                Estado
+                <select value={personForm.followStatus} onChange={(event) => setPersonForm({ ...personForm, followStatus: event.target.value as PersonFollowStatus })}>
+                  {Object.entries(followStatusLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Promesa de pago
+                <input value={personForm.promisedDate} onChange={(event) => setPersonForm({ ...personForm, promisedDate: event.target.value })} type="date" />
+              </label>
+            </div>
             <label>
               Notas
               <textarea value={personForm.notes} onChange={(event) => setPersonForm({ ...personForm, notes: event.target.value })} />
@@ -4514,6 +4632,10 @@ function App() {
                 <div>
                   <h3>{person.name}</h3>
                   <p>{[person.phone, person.email].filter(Boolean).join(' / ') || person.notes || 'Sin datos extra'}</p>
+                  <span className={`follow-chip ${person.followStatus ?? 'normal'}`}>
+                    {followStatusLabels[person.followStatus ?? 'normal']}
+                    {person.promisedDate ? ` - ${person.promisedDate}` : ''}
+                  </span>
                 </div>
                 <strong className={(balances.get(person.id) ?? 0) >= 0 ? 'amount-positive' : 'amount-negative'}>
                   {formatMoney(balances.get(person.id) ?? 0)}
@@ -5141,6 +5263,42 @@ function App() {
                 <span>Pagados</span>
                 <strong>{selectedPersonRecords.filter((record) => record.status === 'pagado').length}</strong>
               </div>
+              <div>
+                <span>Estado</span>
+                <strong>{followStatusLabels[selectedPerson.followStatus ?? 'normal']}</strong>
+              </div>
+              <div>
+                <span>Promesa</span>
+                <strong>{selectedPerson.promisedDate ?? '-'}</strong>
+              </div>
+              <div>
+                <span>Vivos</span>
+                <strong>{selectedPersonOpenRecords.length}</strong>
+              </div>
+            </div>
+
+            <div className="person-follow-box">
+              <div>
+                <span className={`follow-chip ${selectedPerson.followStatus ?? 'normal'}`}>{followStatusLabels[selectedPerson.followStatus ?? 'normal']}</span>
+                <p>
+                  {selectedPerson.lastReminderAt ? `Ultimo aviso: ${selectedPerson.lastReminderAt.slice(0, 10)}. ` : 'Sin avisos marcados. '}
+                  {selectedPerson.lastPaymentAt ? `Ultimo pago: ${selectedPerson.lastPaymentAt.slice(0, 10)}.` : ''}
+                </p>
+              </div>
+              <div className="button-row">
+                <button className="secondary-button" type="button" onClick={() => markPersonReminded(selectedPerson)}>
+                  <BellRing aria-hidden="true" />
+                  Avisado hoy
+                </button>
+                <button className="secondary-button" type="button" onClick={() => setPersonPromise(selectedPerson)}>
+                  <CalendarClock aria-hidden="true" />
+                  Prometio
+                </button>
+                <button className="secondary-button" type="button" onClick={() => updatePersonFollow(selectedPerson, { followStatus: 'revisar' })}>
+                  <SlidersHorizontal aria-hidden="true" />
+                  Revisar
+                </button>
+              </div>
             </div>
 
             <div className="person-sheet-actions">
@@ -5164,6 +5322,10 @@ function App() {
               }}>
                 <CircleDollarSign aria-hidden="true" />
                 Pago
+              </button>
+              <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => registerPartialPayment(selectedPerson)}>
+                <CircleDollarSign aria-hidden="true" />
+                Pago parcial
               </button>
               <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
                 setSelectedPersonId(null)
@@ -5213,22 +5375,23 @@ function App() {
 
             <div className="person-sheet-records">
               <div className="section-heading compact">
-                <h3>Ultimos movimientos</h3>
+                <h3>Timeline</h3>
                 <ReceiptText aria-hidden="true" />
               </div>
-              {selectedPersonRecords.length === 0 && <EmptyState text="Todavia no hay movimientos con esta persona." />}
-              {selectedPersonRecords.slice(0, 4).map((record) => {
-                const impact = personRecordImpact(record, selectedPerson.id)
+              {selectedPersonTimeline.length === 0 && <EmptyState text="Todavia no hay movimientos con esta persona." />}
+              {selectedPersonTimeline.map((entry) => {
                 return (
-                  <button className="person-sheet-record" type="button" key={record.id} onClick={() => {
+                  <button className="person-sheet-record" type="button" key={entry.id} onClick={() => {
+                    const record = records.find((candidate) => candidate.id === entry.id)
+                    if (!record) return
                     setSelectedPersonId(null)
                     startEditRecord(record)
                   }}>
                     <span>
-                      <strong>{record.title}</strong>
-                      <small>{[record.date, statusLabels[record.status]].join(' / ')}</small>
+                      <strong>{entry.title}</strong>
+                      <small>{[entry.date, entry.status].join(' / ')}</small>
                     </span>
-                    <em className={impact >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(impact)}</em>
+                    <em className={entry.impact >= 0 ? 'amount-positive' : 'amount-negative'}>{entry.detail}</em>
                   </button>
                 )
               })}
@@ -5464,6 +5627,10 @@ function PersonBalanceCard({
       <div>
         <h3>{person.name}</h3>
         <p>{person.phone || person.email || person.notes || 'Sin contacto'}</p>
+        <span className={`follow-chip ${person.followStatus ?? 'normal'}`}>
+          {followStatusLabels[person.followStatus ?? 'normal']}
+          {person.promisedDate ? ` - ${person.promisedDate}` : ''}
+        </span>
       </div>
       <strong className={balance >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(balance)}</strong>
       <span className="balance-label">{balance > 0 ? 'me debe' : balance < 0 ? 'le debo' : 'a cero'}</span>
