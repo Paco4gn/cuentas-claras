@@ -62,7 +62,7 @@ test('local account can track a debt, a partial payment and history', async ({ p
   await page.getByRole('button', { name: /Guardar movimiento/i }).click()
   await expect(page.locator('body')).toContainText('15,00')
 
-  await page.getByRole('button', { name: /Historial/i }).click()
+  await page.locator('.tabs').getByRole('button', { name: /Historial/i }).click({ force: true })
   await expect(page.getByText('Cena QA')).toBeVisible()
   await expect(page.getByText('Pago parcial QA')).toBeVisible()
   assertNoErrors()
@@ -643,7 +643,7 @@ test('advanced tools handle favorites, filters, attachments and recurring record
   await page.getByRole('button', { name: /Marcar favorito/i }).click()
   await expect(page.getByRole('button', { name: /Quitar favorito/i })).toBeVisible()
 
-  await page.getByRole('button', { name: /Historial/i }).click()
+  await page.locator('.tabs').getByRole('button', { name: /Historial/i }).click({ force: true })
   await expect(page.getByRole('article').filter({ hasText: 'Suscripcion recurrente' }).getByText('Mensual')).toBeVisible()
   await expect(page.getByRole('link', { name: /ticket.pdf/i })).toBeVisible()
   await page.getByLabel('Tipo').selectOption('debt')
@@ -734,6 +734,39 @@ test('dashboard has editable WhatsApp templates, internal reminders and automati
 
   await page.getByRole('button', { name: /Marcar avisos vistos/i }).click()
   await expect(page.getByText(/Avisos internos marcados como vistos/i)).toBeVisible()
+  assertNoErrors()
+})
+
+test('campaign, ticket rules and closed receipt tools work', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Todo Pro')
+  await addPerson(page, 'Raul Campana', '600111222')
+  await page.getByRole('button', { name: /Personas/i }).click()
+  await page.getByRole('button', { name: /Editar persona/i }).first().click()
+  await page.getByLabel('Reglas para tickets').fill('coca, sandwich')
+  await page.getByRole('button', { name: /Guardar cambios/i }).click()
+  await expect(page.getByText(/Persona actualizada/i)).toBeVisible()
+
+  await addDebt(page, 'Cena campana', '12')
+  await expect(page.locator('body')).toContainText('12,00')
+  const campaignPanel = page.locator('.campaign-panel')
+  await expect(campaignPanel).toContainText('Raul Campana')
+  await campaignPanel.getByRole('button', { name: /Copiar lista/i }).click()
+  await expect(page.getByText(/Campana de cobro (copiada|preparada)/i)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.getByLabel('Texto del ticket').fill('COCA COLA ZERO 0,95 C\nSANDWICH 1,79 B\nTOTAL 2,74')
+  await page.getByRole('button', { name: /Analizar texto/i }).click()
+  await expect(page.locator('.ticket-summary')).toContainText('Raul Campana')
+
+  await page.getByRole('button', { name: /Resumen/i }).click()
+  await page.getByLabel('Abrir ficha de persona').first().click()
+  const personSheet = page.getByRole('dialog', { name: /Ficha de Raul Campana/i })
+  await personSheet.getByRole('button', { name: /Liquidar/i }).click()
+  await expect(page.getByText(/Saldo de Raul Campana liquidado/i)).toBeVisible()
+  await page.getByLabel('Abrir ficha de persona').first().click()
+  await page.getByRole('dialog', { name: /Ficha de Raul Campana/i }).getByRole('button', { name: /Recibo cerrado/i }).click()
+  await expect(page.getByRole('dialog', { name: /QR de cobro/i })).toContainText(/cuenta cerrada/i)
   assertNoErrors()
 })
 

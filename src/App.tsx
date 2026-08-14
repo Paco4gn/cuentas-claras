@@ -129,6 +129,7 @@ interface Person {
   phone: string
   email: string
   notes: string
+  ticketRules?: string
   avatar?: string
   avatarStoragePath?: string
   favorite?: boolean
@@ -890,6 +891,24 @@ function renderReminderTemplate(template: string, values: { app: string; amount:
     .replaceAll('{yo}', values.owner)
 }
 
+function ticketRuleWords(person: Person) {
+  return (person.ticketRules || '')
+    .split(/[,;\n]/)
+    .map((word) => normalizeText(word).trim())
+    .filter((word) => word.length >= 3)
+}
+
+function applyPersonTicketRules(items: TicketItem[], people: Person[]) {
+  return items.map((item) => {
+    const title = normalizeText(item.title)
+    const matchedIds = people
+      .filter((person) => ticketRuleWords(person).some((word) => title.includes(word)))
+      .map((person) => person.id)
+    if (!matchedIds.length) return item
+    return { ...item, participantIds: [...new Set([...item.participantIds, ...matchedIds])] }
+  })
+}
+
 function daysUntil(date: string) {
   const target = new Date(`${date}T00:00:00`).getTime()
   const current = new Date(`${today}T00:00:00`).getTime()
@@ -1447,7 +1466,7 @@ function App() {
   const [personFilter, setPersonFilter] = useState('todos')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '', avatar: '', followStatus: 'normal' as PersonFollowStatus, promisedDate: '' })
+  const [personForm, setPersonForm] = useState({ name: '', phone: '', email: '', notes: '', ticketRules: '', avatar: '', followStatus: 'normal' as PersonFollowStatus, promisedDate: '' })
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null)
   const [kind, setKind] = useState<RecordKind>('split')
   const [title, setTitle] = useState('')
@@ -1949,6 +1968,17 @@ function App() {
     })
     return { total: Number(total.toFixed(2)), assignedTotal: Number(assignedTotal.toFixed(2)), pendingTotal: Number((total - assignedTotal).toFixed(2)), shares: totals }
   }, [ticketItems])
+  const ticketWarnings = useMemo(() => {
+    const warnings: string[] = []
+    const parsedTotal = parseTicketTotal(ticketText)
+    if (parsedTotal > 0 && ticketItems.length > 0 && Math.abs(parsedTotal - ticketTotals.total) > 0.02) {
+      warnings.push(`Total OCR ${formatMoney(parsedTotal)} y lineas ${formatMoney(ticketTotals.total)} no cuadran.`)
+    }
+    if (ticketItems.some((item) => item.participantIds.length === 0)) warnings.push('Hay productos sin persona asignada.')
+    if (/desc\.?|dto|descuento/i.test(ticketText)) warnings.push('Hay descuentos: revisa que esten restados en el producto correcto.')
+    if (ticketItems.some((item) => /\/\d+$/.test(item.title))) warnings.push('Hay unidades separadas: puedes juntarlas por grupo si eran para las mismas personas.')
+    return warnings
+  }, [ticketItems, ticketText, ticketTotals.total])
   const currentTicketItem = ticketItems[ticketStep] ?? null
   const ticketAssignedCount = ticketItems.filter((item) => item.participantIds.length > 0).length
   const ticketReadyToSave = ticketItems.length > 0 && ticketItems.every((item) => item.title.trim() && item.amount > 0 && item.participantIds.length > 0)
@@ -2123,6 +2153,19 @@ function App() {
     return [...paymentAlerts, ...promiseAlerts, ...reminderAlerts].slice(0, 8)
   }, [balances, pendingConfirmations, people, reminderSuggestions])
   const unreadNotificationCount = internalNotifications.filter((item) => !readNotificationIds.includes(item.id)).length
+  const campaignTargets = useMemo(
+    () => fullDebtorRanking.filter((item) => item.balance > 0.009 && item.person.followStatus !== 'bloqueado').slice(0, 8),
+    [fullDebtorRanking],
+  )
+  const calendarItems = useMemo(() => {
+    const dueItems = records
+      .filter((record) => record.dueDate && record.status !== 'pagado')
+      .map((record) => ({ id: `due-${record.id}`, date: record.dueDate ?? record.date, title: record.title, detail: dueLabel(record), tone: daysUntil(record.dueDate ?? today) < 0 ? 'warn' : 'calm' }))
+    const promiseItems = people
+      .filter((person) => person.promisedDate && Math.abs(balances.get(person.id) ?? 0) > 0.009)
+      .map((person) => ({ id: `promise-${person.id}`, date: person.promisedDate ?? today, title: person.name, detail: `Promesa ${formatMoney(Math.abs(balances.get(person.id) ?? 0))}`, tone: (person.promisedDate ?? today) < today ? 'warn' : 'positive' }))
+    return [...dueItems, ...promiseItems].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10)
+  }, [balances, people, records])
 
   function openNextAction(action: { id: string; personId?: string }) {
     const targetPerson = action.personId ? people.find((person) => person.id === action.personId) : null
@@ -2576,6 +2619,7 @@ function App() {
       phone: personForm.phone.trim(),
       email: personForm.email.trim(),
       notes: personForm.notes.trim(),
+      ticketRules: personForm.ticketRules.trim(),
       avatar: personForm.avatar,
       avatarStoragePath: previousPerson?.avatarStoragePath,
       followStatus: personForm.followStatus,
@@ -2589,7 +2633,7 @@ function App() {
       const personToSave = await personWithCloudAvatar(person)
       await removeOldCloudAvatarIfNeeded(previousPerson, personToSave)
       await persistPerson(personToSave)
-      setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '', followStatus: 'normal', promisedDate: '' })
+      setPersonForm({ name: '', phone: '', email: '', notes: '', ticketRules: '', avatar: '', followStatus: 'normal', promisedDate: '' })
       setEditingPersonId(null)
       setPersonId(personToSave.id)
       setParticipantIds((current) => [...new Set([...current, personToSave.id])])
@@ -2608,6 +2652,7 @@ function App() {
       phone: person.phone,
       email: person.email,
       notes: person.notes,
+      ticketRules: person.ticketRules ?? '',
       avatar: person.avatar ?? '',
       followStatus: person.followStatus ?? 'normal',
       promisedDate: person.promisedDate ?? '',
@@ -2617,7 +2662,7 @@ function App() {
   }
 
   function resetPersonForm() {
-    setPersonForm({ name: '', phone: '', email: '', notes: '', avatar: '', followStatus: 'normal', promisedDate: '' })
+    setPersonForm({ name: '', phone: '', email: '', notes: '', ticketRules: '', avatar: '', followStatus: 'normal', promisedDate: '' })
     setEditingPersonId(null)
   }
 
@@ -2822,7 +2867,7 @@ function App() {
   }
 
   function analyzeTicketText() {
-    const items = parseTicketText(ticketText)
+    const items = applyPersonTicketRules(parseTicketText(ticketText), people)
     if (items.length === 0) {
       setTicketError('No he detectado productos con importe. Corrige el texto o usa lineas tipo "Pizza 8,50".')
       setTicketItems([])
@@ -2832,7 +2877,8 @@ function App() {
     setTicketItems(items)
     setTicketStep(0)
     setTicketError('')
-    setNotice(`${items.length} lineas detectadas. Te voy preguntando una por una.`)
+    const autoAssigned = items.filter((item) => item.participantIds.length > 0).length
+    setNotice(`${items.length} lineas detectadas${autoAssigned ? `, ${autoAssigned} autoasignadas por reglas` : ''}. Te voy preguntando una por una.`)
   }
 
   async function handleTicketImage(event: React.ChangeEvent<HTMLInputElement>) {
@@ -2852,10 +2898,11 @@ function App() {
       const bestResult = bestTicketOcrResult([originalResult.data.text.trim(), enhancedResult.data.text.trim()])
       const text = bestResult?.text ?? ''
       setTicketText(text)
-      const items = bestResult?.items ?? []
+      const items = applyPersonTicketRules(bestResult?.items ?? [], people)
       setTicketItems(items)
       setTicketStep(0)
-      setNotice(items.length ? `${items.length} lineas leidas del ticket. Te voy preguntando una por una.` : 'He leido el ticket, pero toca corregir el texto.')
+      const autoAssigned = items.filter((item) => item.participantIds.length > 0).length
+      setNotice(items.length ? `${items.length} lineas leidas del ticket${autoAssigned ? `, ${autoAssigned} autoasignadas por reglas` : ''}. Te voy preguntando una por una.` : 'He leido el ticket, pero toca corregir el texto.')
       if (!items.length) setTicketError('No he detectado productos claros. Revisa el texto extraido y pulsa Analizar.')
     } catch {
       setTicketError('No pude leer la foto. Puedes pegar el texto del ticket y analizarlo.')
@@ -3497,6 +3544,48 @@ function App() {
     }
   }
 
+  function campaignText() {
+    if (campaignTargets.length === 0) return 'No hay personas pendientes para campana de cobro.'
+    return campaignTargets
+      .map((item, index) => `${index + 1}. ${item.person.name}: ${formatMoney(item.balance)} pendiente. Estado: ${followStatusLabels[item.person.followStatus ?? 'normal']}.`)
+      .join('\n')
+  }
+
+  async function copyCampaign() {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(campaignText())
+        setNotice('Campana de cobro copiada.')
+        return
+      }
+      setNotice('Campana de cobro preparada.')
+    } catch {
+      setNotice('Campana de cobro preparada.')
+    }
+  }
+
+  async function shareCampaign() {
+    const text = campaignText()
+    try {
+      if (navigator.share) await navigator.share({ title: `Campana de cobro ${appName}`, text })
+      else await navigator.clipboard?.writeText(text)
+      setNotice('Campana preparada.')
+    } catch {
+      setNotice('No se pudo compartir la campana.')
+    }
+  }
+
+  async function launchNextCampaignReminder() {
+    const target = campaignTargets.find((item) => normalizeWhatsappPhone(item.person.phone)) ?? campaignTargets[0]
+    if (!target) {
+      setNotice('No hay nadie pendiente para avisar.')
+      return
+    }
+    await sharePersonPoster(target.person)
+    await persistPersonFollowQuiet(target.person, { followStatus: 'avisado', lastReminderAt: new Date().toISOString() })
+    if (syncMode === 'local') await refreshData()
+  }
+
   function openPersonHistory(person: Person, onlyOverdue = false) {
     setPersonFilter(person.id)
     setStatusFilter(onlyOverdue ? 'vencidos' : 'todos')
@@ -3564,6 +3653,13 @@ function App() {
       return
     }
     const amountToSave = Number(Math.min(parsedAmount, Math.abs(balance)).toFixed(2))
+    await registerPaymentAmountForPerson(person, amountToSave, `Pago parcial registrado desde la ficha de ${person.name}.`)
+  }
+
+  async function registerPaymentAmountForPerson(person: Person, amountToSave: number, paymentNote: string) {
+    if (!currentUser || !activeLedgerId) return
+    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    if (Math.abs(balance) <= 0.009 || amountToSave <= 0) return
     const paymentRecord: LedgerRecord = {
       id: uid(),
       userId: activeLedgerId,
@@ -3576,7 +3672,7 @@ function App() {
       direction: balance > 0 ? 'person_paid_me' : 'i_paid_person',
       tags: ['pago', 'parcial'],
       status: 'por-pagar',
-      note: `Pago parcial registrado desde la ficha de ${person.name}.`,
+      note: paymentNote,
       createdAt: new Date().toISOString(),
     }
     await persistRecord(paymentRecord)
@@ -3628,6 +3724,51 @@ function App() {
     await settlePerson(targetPerson)
     await resolvePaymentConfirmation(confirmation, 'accepted')
     setNotice(`Pago de ${confirmation.payerName} confirmado y cuenta cerrada.`)
+  }
+
+  async function acceptPaymentConfirmationPartial(confirmation: PaymentConfirmation) {
+    if (!currentUser || !firestore) return
+    if (confirmation.ledgerId && confirmation.ledgerId !== activeLedgerId) {
+      switchToConfirmationLedger(confirmation)
+      return
+    }
+    const targetPerson = confirmation.personId ? people.find((person) => person.id === confirmation.personId) : null
+    if (!targetPerson) {
+      setNotice('No encuentro esa persona en la libreta activa.')
+      return
+    }
+    await registerPaymentAmountForPerson(targetPerson, confirmation.amount, `Pago avisado desde enlace publico. ${confirmation.proofText || confirmation.message}`)
+    await resolvePaymentConfirmation(confirmation, 'accepted')
+    setNotice(`Pago parcial de ${confirmation.payerName} aceptado.`)
+  }
+
+  async function requestPaymentProof(confirmation: PaymentConfirmation) {
+    const targetPerson = confirmation.personId ? people.find((person) => person.id === confirmation.personId) : null
+    const text = `${confirmation.payerName}, me sale tu aviso de pago de ${formatMoney(confirmation.amount)}, pero necesito captura o detalle de Bizum para cerrarlo.`
+    try {
+      if (targetPerson?.phone) window.open(whatsappUrl(text, targetPerson.phone), '_blank', 'noopener,noreferrer')
+      else await navigator.clipboard?.writeText(text)
+      setNotice(targetPerson?.phone ? 'WhatsApp para pedir captura abierto.' : 'Texto para pedir captura copiado.')
+    } catch {
+      setNotice('No se pudo preparar la peticion de captura.')
+    }
+  }
+
+  async function openSettledReceipt(person: Person) {
+    const ownerName = currentUser?.name || appName
+    const payload = {
+      title: person.name,
+      text: `${person.name} y ${ownerName} tienen la cuenta cerrada en ${appName}.`,
+      amount: 0,
+      tone: 'settled',
+      photo: await qrPhotoForPerson(person),
+      ownerName,
+      ownerId: currentUser?.id,
+      ledgerId: activeLedgerId,
+      sharedLedger: isSharedLedger,
+      personId: person.id,
+    } satisfies PublicQrPayload
+    setQrPayload({ ...payload, phone: person.phone, url: await buildPublicQrUrl(payload, currentUser?.id, { short: true }) })
   }
 
   function startQuickPayment(person: Person) {
@@ -4361,6 +4502,14 @@ function App() {
                             <CheckCircle2 aria-hidden="true" />
                             {needsSwitch ? 'Abrir cuenta' : 'Aceptar y liquidar'}
                           </button>
+                          <button className="secondary-button" type="button" onClick={() => acceptPaymentConfirmationPartial(confirmation)}>
+                            <CircleDollarSign aria-hidden="true" />
+                            Aceptar parcial
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => requestPaymentProof(confirmation)}>
+                            <Paperclip aria-hidden="true" />
+                            Pedir captura
+                          </button>
                           <button className="secondary-button" type="button" onClick={() => resolvePaymentConfirmation(confirmation, 'dismissed')}>
                             <X aria-hidden="true" />
                             Rechazar
@@ -4452,6 +4601,39 @@ function App() {
                     <em>{formatMoney(balance)}</em>
                   </button>
                 ))}
+              </div>
+            </section>
+
+            <section className="panel campaign-panel">
+              <div className="section-heading compact">
+                <h2>Campana de cobro</h2>
+                <MessageCircle aria-hidden="true" />
+              </div>
+              <p className="panel-copy">Ordena a quien conviene avisar primero por importe, antiguedad y estado.</p>
+              <div className="campaign-list">
+                {campaignTargets.length === 0 && <EmptyState text="No hay objetivos pendientes para campana." />}
+                {campaignTargets.map((item, index) => (
+                  <button className="campaign-row" key={item.person.id} type="button" onClick={() => setSelectedPersonId(item.person.id)}>
+                    <span>{index + 1}</span>
+                    <strong>{item.person.name}</strong>
+                    <small>{followStatusLabels[item.person.followStatus ?? 'normal']}</small>
+                    <em>{formatMoney(item.balance)}</em>
+                  </button>
+                ))}
+              </div>
+              <div className="button-row">
+                <button className="secondary-button" disabled={campaignTargets.length === 0} type="button" onClick={copyCampaign}>
+                  <Copy aria-hidden="true" />
+                  Copiar lista
+                </button>
+                <button className="secondary-button" disabled={campaignTargets.length === 0} type="button" onClick={shareCampaign}>
+                  <Link2 aria-hidden="true" />
+                  Compartir
+                </button>
+                <button className="primary-button" disabled={campaignTargets.length === 0} type="button" onClick={launchNextCampaignReminder}>
+                  <MessageCircle aria-hidden="true" />
+                  Avisar siguiente
+                </button>
               </div>
             </section>
 
@@ -4629,20 +4811,23 @@ function App() {
 
             <section className="panel">
               <div className="section-heading compact">
-                <h2>Vencimientos</h2>
+                <h2>Calendario</h2>
                 <BellRing aria-hidden="true" />
               </div>
               <div className="compact-records">
-                {dueRecords.length === 0 && <EmptyState text="No hay vencimientos pendientes." />}
-                {dueRecords.map((record) => (
-                  <button
-                    className={`compact-record due-${dueTone(record)}`}
-                    key={record.id}
-                    onClick={() => startEditRecord(record)}
-                    type="button"
-                  >
-                    <span>{record.title}</span>
-                    <strong>{dueLabel(record)}</strong>
+                {calendarItems.length === 0 && <EmptyState text="No hay vencimientos ni promesas pendientes." />}
+                {calendarItems.map((item) => (
+                  <button className={`compact-record due-${item.tone}`} key={item.id} onClick={() => {
+                    if (item.id.startsWith('due-')) {
+                      const record = records.find((candidate) => `due-${candidate.id}` === item.id)
+                      if (record) startEditRecord(record)
+                    } else {
+                      const person = people.find((candidate) => `promise-${candidate.id}` === item.id)
+                      if (person) setSelectedPersonId(person.id)
+                    }
+                  }} type="button">
+                    <span>{item.date} / {item.title}</span>
+                    <strong>{item.detail}</strong>
                   </button>
                 ))}
                 {dueStats.overdue > 0 && (
@@ -4926,6 +5111,14 @@ function App() {
               Notas
               <textarea value={personForm.notes} onChange={(event) => setPersonForm({ ...personForm, notes: event.target.value })} />
             </label>
+            <label>
+              Reglas para tickets
+              <textarea
+                value={personForm.ticketRules}
+                onChange={(event) => setPersonForm({ ...personForm, ticketRules: event.target.value })}
+                placeholder="coca, sandwich, gasolina... separadas por comas"
+              />
+            </label>
             <div className="button-row">
               <button className="primary-button" disabled={personSaving} type="submit">
                 {editingPersonId ? <Save aria-hidden="true" /> : <Plus aria-hidden="true" />}
@@ -4946,7 +5139,7 @@ function App() {
                 <Avatar name={person.name} src={person.avatar} />
                 <div>
                   <h3>{person.name}</h3>
-                  <p>{[person.phone, person.email].filter(Boolean).join(' / ') || person.notes || 'Sin datos extra'}</p>
+                  <p>{[person.phone, person.email].filter(Boolean).join(' / ') || person.notes || person.ticketRules && `Reglas: ${person.ticketRules}` || 'Sin datos extra'}</p>
                   <span className={`follow-chip ${person.followStatus ?? 'normal'}`}>
                     {followStatusLabels[person.followStatus ?? 'normal']}
                     {person.promisedDate ? ` - ${person.promisedDate}` : ''}
@@ -5155,6 +5348,13 @@ function App() {
               />
             </label>
             {ticketError && <p className="error-text">{ticketError}</p>}
+            {ticketWarnings.length > 0 && (
+              <div className="ticket-warning-list">
+                {ticketWarnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            )}
             {ticketItems.length > 0 ? (
               <>
                 <div className="ticket-topline">
@@ -5656,6 +5856,13 @@ function App() {
               }}>
                 <CheckCircle2 aria-hidden="true" />
                 Liquidar
+              </button>
+              <button className="secondary-button" type="button" onClick={() => {
+                setSelectedPersonId(null)
+                openSettledReceipt(selectedPerson)
+              }}>
+                <FileText aria-hidden="true" />
+                Recibo cerrado
               </button>
               <button className="secondary-button" type="button" onClick={() => {
                 setSelectedPersonId(null)

@@ -2276,6 +2276,7 @@ button:focus-visible {
 
 .internal-notification-list,
 .ranking-list,
+.campaign-list,
 .trip-days,
 .template-editor {
   display: grid;
@@ -2284,6 +2285,7 @@ button:focus-visible {
 
 .internal-notification,
 .ranking-row,
+.campaign-row,
 .trip-day,
 .backup-toggle {
   align-items: center;
@@ -2332,6 +2334,29 @@ button:focus-visible {
   grid-template-columns: 22px 36px minmax(0, 1fr) auto auto;
 }
 
+.campaign-row {
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+}
+
+.campaign-row span,
+.campaign-row small {
+  color: var(--text-soft);
+  font-weight: 900;
+}
+
+.campaign-row strong {
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.campaign-row em {
+  color: #0f766e;
+  font-style: normal;
+  font-weight: 950;
+}
+
 .ranking-row .avatar {
   height: 36px;
   width: 36px;
@@ -2348,6 +2373,22 @@ button:focus-visible {
 
 .template-editor textarea {
   min-height: 74px;
+}
+
+.ticket-warning-list {
+  display: grid;
+  gap: 6px;
+}
+
+.ticket-warning-list p {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 850;
+  margin: 0;
+  padding: 8px;
 }
 
 .notification-status {
@@ -2415,6 +2456,7 @@ button:focus-visible {
     right: 10px;
     left: 10px;
     top: auto;
+    z-index: 40;
   }
 
   .tabs button {
@@ -2788,10 +2830,14 @@ button:focus-visible {
   backdrop-filter: blur(12px);
   background: rgba(255, 255, 255, 0.86);
   box-shadow: var(--shadow-soft);
+  isolation: isolate;
+  z-index: 80;
 }
 
 .tabs button {
   font-weight: 850;
+  position: relative;
+  z-index: 1;
 }
 
 .panel,
@@ -3157,6 +3203,7 @@ button:focus-visible {
     margin: 0;
     padding: 7px;
     right: 10px;
+    z-index: 80;
   }
 
   .tabs button {
