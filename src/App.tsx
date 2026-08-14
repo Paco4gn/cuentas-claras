@@ -81,8 +81,9 @@ type KindFilter = 'todos' | RecordKind
 type RepeatRule = 'none' | 'weekly' | 'monthly'
 type AuthMode = 'login' | 'register' | 'recover'
 type SyncMode = 'cloud' | 'local'
-type ReminderTone = 'suave' | 'directo' | 'ultimo' | 'broma'
-type PersonFollowStatus = 'normal' | 'avisado' | 'prometio' | 'revisar' | 'bloqueado'
+type ReminderTone = 'suave' | 'directo' | 'seria' | 'ultimo' | 'broma'
+type PersonFollowStatus = 'normal' | 'avisado' | 'prometio' | 'parcial' | 'revisar' | 'habitual' | 'bloqueado'
+type ReminderTemplates = Record<ReminderTone, string>
 
 interface User {
   id: string
@@ -219,9 +220,12 @@ interface PaymentConfirmation {
   payerName: string
   amount: number
   message: string
+  proofText?: string
+  proofImage?: string
   status: 'pending' | 'accepted' | 'dismissed'
   createdAt: string
   resolvedAt?: string
+  viewedAt?: string
 }
 
 interface TicketItem {
@@ -308,8 +312,26 @@ const followStatusLabels: Record<PersonFollowStatus, string> = {
   normal: 'Normal',
   avisado: 'Avisado',
   prometio: 'Prometio pagar',
+  parcial: 'Pago parcial',
   revisar: 'Revisar',
+  habitual: 'Moroso habitual',
   bloqueado: 'No insistir',
+}
+
+const reminderToneLabels: Record<ReminderTone, string> = {
+  suave: 'Suave',
+  directo: 'Normal',
+  seria: 'Seria',
+  ultimo: 'Ultima advertencia',
+  broma: 'Graciosa',
+}
+
+const defaultReminderTemplates: ReminderTemplates = {
+  suave: '{nombre}, tienes {importe} pendiente conmigo. Te paso el cartel; cuando lo tengas pagado, avisame y lo cierro.',
+  directo: '{nombre}: {importe} pendiente conmigo. Te dejo el cartel y el boton para confirmar el pago.',
+  seria: '{nombre}, necesito cerrar la cuenta de {importe}. Confirma el pago cuando lo hagas para dejarlo registrado.',
+  ultimo: '{nombre}, ultimo aviso para cerrar {importe}. Si ya esta pagado, entra en el enlace y confirmalo.',
+  broma: '{nombre}, CazaMorosos te ha sacado cartel por {importe}. Paga, confirma y salimos todos dignos de esta pelicula.',
 }
 
 const kindLabels: Record<RecordKind, string> = {
@@ -835,6 +857,37 @@ function attachmentFileToData(file: File) {
     reader.onload = () => resolve({ name: file.name, data: String(reader.result) })
     reader.readAsDataURL(file)
   })
+}
+
+function proofFileToData(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    if (file.size > 1_800_000) {
+      reject(new Error('too-large'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('read-error'))
+    reader.onload = () => resolve(String(reader.result))
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadReminderTemplates(userId?: string): ReminderTemplates {
+  if (!userId) return defaultReminderTemplates
+  try {
+    const raw = localStorage.getItem(`cazamorosos-reminder-templates-${userId}`)
+    return raw ? { ...defaultReminderTemplates, ...JSON.parse(raw) } : defaultReminderTemplates
+  } catch {
+    return defaultReminderTemplates
+  }
+}
+
+function renderReminderTemplate(template: string, values: { app: string; amount: string; name: string; owner: string }) {
+  return template
+    .replaceAll('{app}', values.app)
+    .replaceAll('{importe}', values.amount)
+    .replaceAll('{nombre}', values.name)
+    .replaceAll('{yo}', values.owner)
 }
 
 function daysUntil(date: string) {
@@ -1430,6 +1483,8 @@ function App() {
   const [showZeroBalances, setShowZeroBalances] = useState(true)
   const [privacyHidden, setPrivacyHidden] = useState(false)
   const [reminderTone, setReminderTone] = useState<ReminderTone>('suave')
+  const [reminderTemplates, setReminderTemplates] = useState<ReminderTemplates>(defaultReminderTemplates)
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false)
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null)
   const [pinInput, setPinInput] = useState('')
   const [pinUnlock, setPinUnlock] = useState('')
@@ -1438,12 +1493,54 @@ function App() {
   const [qrPayload, setQrPayload] = useState<QrPayload | null>(null)
   const [qrImageUrl, setQrImageUrl] = useState('')
   const [paymentConfirmations, setPaymentConfirmations] = useState<PaymentConfirmation[]>([])
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([])
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true)
+  const [lastBackupAt, setLastBackupAt] = useState('')
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
   const activeLedgerId = activeGroup?.id ?? currentUser?.id ?? ''
   const isSharedLedger = Boolean(activeGroup)
   const seenConfirmationIds = useRef(new Set<string>())
+
+  useEffect(() => {
+    if (!currentUser) return
+    setReminderTemplates(loadReminderTemplates(currentUser.id))
+    setReadNotificationIds(JSON.parse(localStorage.getItem(`cazamorosos-read-notifications-${currentUser.id}`) || '[]') as string[])
+    setAutoBackupEnabled(localStorage.getItem(`cazamorosos-auto-backup-enabled-${currentUser.id}`) !== 'false')
+    setLastBackupAt(localStorage.getItem(`cazamorosos-last-backup-at-${currentUser.id}`) || '')
+  }, [currentUser])
+
+  useEffect(() => {
+    if (!currentUser) return
+    localStorage.setItem(`cazamorosos-reminder-templates-${currentUser.id}`, JSON.stringify(reminderTemplates))
+  }, [currentUser, reminderTemplates])
+
+  useEffect(() => {
+    if (!currentUser) return
+    localStorage.setItem(`cazamorosos-read-notifications-${currentUser.id}`, JSON.stringify(readNotificationIds))
+  }, [currentUser, readNotificationIds])
+
+  useEffect(() => {
+    if (!currentUser) return
+    localStorage.setItem(`cazamorosos-auto-backup-enabled-${currentUser.id}`, String(autoBackupEnabled))
+  }, [autoBackupEnabled, currentUser])
+
+  useEffect(() => {
+    if (!currentUser || !activeLedgerId || !autoBackupEnabled) return
+    const backup = {
+      version: 3,
+      exportedAt: new Date().toISOString(),
+      ledgerId: activeLedgerId,
+      people,
+      records,
+    }
+    const key = `cazamorosos-auto-backup-${currentUser.id}-${activeLedgerId}`
+    const backupAt = backup.exportedAt
+    localStorage.setItem(key, JSON.stringify(backup))
+    localStorage.setItem(`cazamorosos-last-backup-at-${currentUser.id}`, backupAt)
+    setLastBackupAt(backupAt)
+  }, [activeLedgerId, autoBackupEnabled, currentUser, people, records])
 
   useEffect(() => {
     if (!qrPayload) {
@@ -1607,12 +1704,12 @@ function App() {
       (snapshot) => {
         const nextConfirmations = snapshot.docs
           .map((confirmationDoc) => ({ id: confirmationDoc.id, ...confirmationDoc.data() }) as PaymentConfirmation)
-          .filter((confirmation) => confirmation.status === 'pending')
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        const fresh = nextConfirmations.find((confirmation) => !seenConfirmationIds.current.has(confirmation.id))
+        const pendingConfirmations = nextConfirmations.filter((confirmation) => confirmation.status === 'pending')
+        const fresh = pendingConfirmations.find((confirmation) => !seenConfirmationIds.current.has(confirmation.id))
         nextConfirmations.forEach((confirmation) => seenConfirmationIds.current.add(confirmation.id))
         setPaymentConfirmations(nextConfirmations)
-        updateAppBadge(nextConfirmations.length)
+        updateAppBadge(pendingConfirmations.length)
         if (fresh) {
           const body = `${fresh.payerName} avisa que ha pagado ${formatMoney(fresh.amount)}. Entra para aceptarlo o revisarlo.`
           setNotice(body)
@@ -1769,6 +1866,43 @@ function App() {
         .filter((item) => item.balance > 0.009 || item.overdueCount > 0)
         .sort((a, b) => b.overdueCount - a.overdueCount || b.balance - a.balance || b.pendingCount - a.pendingCount)
         .slice(0, 5),
+    [balances, records, sortedPeople],
+  )
+
+  const fullDebtorRanking = useMemo(
+    () =>
+      sortedPeople
+        .map((person) => {
+          const balance = balances.get(person.id) ?? 0
+          const openRecords = records.filter((record) => recordHasOpenImpactForPerson(record, person.id))
+          const paidRecords = records.filter((record) => recordTouchesPerson(record, person.id) && record.status === 'pagado')
+          const lastReminderAge = person.lastReminderAt ? Math.max(0, Math.floor((Date.now() - new Date(person.lastReminderAt).getTime()) / dayMs)) : 999
+          return {
+            balance,
+            openCount: openRecords.length,
+            paidCount: paidRecords.length,
+            person,
+            score: Math.max(balance, 0) + openRecords.length * 2 + Math.min(lastReminderAge, 30) / 5,
+          }
+        })
+        .filter((item) => Math.abs(item.balance) > 0.009 || item.openCount || item.paidCount)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 6),
+    [balances, records, sortedPeople],
+  )
+
+  const reminderSuggestions = useMemo(
+    () =>
+      sortedPeople
+        .map((person) => {
+          const balance = balances.get(person.id) ?? 0
+          const lastReminderAge = person.lastReminderAt ? Math.floor((Date.now() - new Date(person.lastReminderAt).getTime()) / dayMs) : 999
+          const openCount = records.filter((record) => recordHasOpenImpactForPerson(record, person.id)).length
+          return { balance, lastReminderAge, openCount, person }
+        })
+        .filter((item) => item.balance > 0.009 && item.openCount > 0 && (item.lastReminderAge >= 3 || item.person.followStatus === 'revisar'))
+        .sort((a, b) => b.lastReminderAge - a.lastReminderAge || b.balance - a.balance)
+        .slice(0, 4),
     [balances, records, sortedPeople],
   )
 
@@ -1942,6 +2076,14 @@ function App() {
   }, [records])
   const activeTripMode = activeGroup?.mode === 'viaje'
   const tripBudget = activeGroup?.budget ?? 0
+  const tripDailyStats = useMemo(() => {
+    const days = new Map<string, number>()
+    records.forEach((record) => {
+      if (record.status === 'pagado') return
+      days.set(record.date, Number(((days.get(record.date) ?? 0) + Math.abs(record.amount)).toFixed(2)))
+    })
+    return [...days.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-7)
+  }, [records])
   const firstPersonId = people[0]?.id ?? ''
   const shareTotal = participantIds.reduce((sum, id) => sum + Number(shares[id] ?? 0), 0)
   const splitDifference = Number((Number(amount || 0) - shareTotal).toFixed(2))
@@ -1951,6 +2093,36 @@ function App() {
   const owedToMePercent = exposureTotal ? Math.round((summary.owedToMe / exposureTotal) * 100) : 50
   const owedByMePercent = exposureTotal ? 100 - owedToMePercent : 50
   const paidRate = records.length ? Math.round((summary.paidCount / records.length) * 100) : 0
+  const pendingConfirmations = paymentConfirmations.filter((confirmation) => confirmation.status === 'pending')
+  const acceptedConfirmations = paymentConfirmations.filter((confirmation) => confirmation.status === 'accepted')
+  const dismissedConfirmations = paymentConfirmations.filter((confirmation) => confirmation.status === 'dismissed')
+  const internalNotifications = useMemo(() => {
+    const promiseAlerts = people
+      .filter((person) => person.promisedDate && person.promisedDate <= today && Math.abs(balances.get(person.id) ?? 0) > 0.009)
+      .map((person) => ({
+        id: `promise-${person.id}-${person.promisedDate}`,
+        title: `${person.name} prometio pagar`,
+        body: `${formatMoney(Math.abs(balances.get(person.id) ?? 0))} pendiente desde ${person.promisedDate}.`,
+        tone: 'warn' as const,
+        personId: person.id,
+      }))
+    const paymentAlerts = pendingConfirmations.map((confirmation) => ({
+      id: `confirmation-${confirmation.id}`,
+      title: `Pago avisado por ${confirmation.payerName}`,
+      body: `${formatMoney(confirmation.amount)} espera revision.`,
+      tone: 'positive' as const,
+      confirmationId: confirmation.id,
+    }))
+    const reminderAlerts = reminderSuggestions.map((item) => ({
+      id: `reminder-${item.person.id}`,
+      title: `Toca recordar a ${item.person.name}`,
+      body: `${formatMoney(item.balance)} pendiente. Ultimo aviso: ${item.lastReminderAge >= 900 ? 'nunca' : `hace ${item.lastReminderAge} dias`}.`,
+      tone: 'calm' as const,
+      personId: item.person.id,
+    }))
+    return [...paymentAlerts, ...promiseAlerts, ...reminderAlerts].slice(0, 8)
+  }, [balances, pendingConfirmations, people, reminderSuggestions])
+  const unreadNotificationCount = internalNotifications.filter((item) => !readNotificationIds.includes(item.id)).length
 
   function openNextAction(action: { id: string; personId?: string }) {
     const targetPerson = action.personId ? people.find((person) => person.id === action.personId) : null
@@ -3186,6 +3358,45 @@ function App() {
     setNotice('Push real activado para este iPhone. Si la app esta cerrada, Firebase podra avisarte.')
   }
 
+  function markInternalNotificationsRead() {
+    const ids = internalNotifications.map((item) => item.id)
+    setReadNotificationIds((current) => [...new Set([...current, ...ids])])
+    updateAppBadge(pendingConfirmations.length)
+    setNotice(ids.length ? 'Avisos internos marcados como vistos.' : 'No hay avisos internos.')
+  }
+
+  function openInternalNotification(item: { confirmationId?: string; personId?: string }) {
+    if (item.confirmationId) {
+      setTab('resumen')
+      setReadNotificationIds((current) => [...new Set([...current, `confirmation-${item.confirmationId}`])])
+      return
+    }
+    if (item.personId) {
+      setSelectedPersonId(item.personId)
+      setReadNotificationIds((current) => [...new Set([...current, `reminder-${item.personId}`, `promise-${item.personId}-${people.find((person) => person.id === item.personId)?.promisedDate ?? ''}`])])
+    }
+  }
+
+  function updateReminderTemplate(tone: ReminderTone, value: string) {
+    setReminderTemplates((current) => ({ ...current, [tone]: value }))
+  }
+
+  function resetReminderTemplates() {
+    setReminderTemplates(defaultReminderTemplates)
+    setNotice('Plantillas restauradas.')
+  }
+
+  function downloadAutoBackup() {
+    if (!currentUser || !activeLedgerId) return
+    const raw = localStorage.getItem(`cazamorosos-auto-backup-${currentUser.id}-${activeLedgerId}`)
+    if (!raw) {
+      setNotice('Aun no hay backup automatico guardado.')
+      return
+    }
+    downloadFile(`cazamorosos-backup-auto-${today}.json`, raw, 'application/json')
+    setNotice('Backup automatico descargado.')
+  }
+
   async function savePin() {
     if (!currentUser) return
     const pin = pinInput.trim()
@@ -3369,7 +3580,7 @@ function App() {
       createdAt: new Date().toISOString(),
     }
     await persistRecord(paymentRecord)
-    await persistPersonFollowQuiet(person, { followStatus: amountToSave >= Math.abs(balance) ? 'normal' : 'revisar', lastPaymentAt: new Date().toISOString() })
+    await persistPersonFollowQuiet(person, { followStatus: amountToSave >= Math.abs(balance) ? 'normal' : 'parcial', lastPaymentAt: new Date().toISOString() })
     if (syncMode === 'local') await refreshData()
     setNotice(`Pago parcial de ${formatMoney(amountToSave)} registrado para ${person.name}.`)
   }
@@ -3398,7 +3609,7 @@ function App() {
     )
     setPaymentConfirmations((current) => {
       const next = current.filter((item) => item.id !== confirmation.id)
-      updateAppBadge(next.length)
+      updateAppBadge(next.filter((item) => item.status === 'pending').length)
       return next
     })
   }
@@ -3446,20 +3657,21 @@ function App() {
 
   function reminderMessage(person: Person, balance: number, ownerName = currentUser?.name || appName) {
     const amountText = formatMoney(Math.abs(balance))
-    const collectMessages: Record<ReminderTone, string> = {
-      suave: `${person.name}, tienes ${amountText} pendiente conmigo. Te paso el cartel con el importe; cuando este pagado, avisame y lo cierro.`,
-      directo: `${person.name}, tenemos pendiente una cuenta de ${amountText}. Revisa el cartel y dime cuando queda pagada.`,
-      ultimo: `${person.name}, necesito cerrar esta cuenta pendiente de ${amountText}. Te envio el cartel y el detalle para dejarlo resuelto.`,
-      broma: `${person.name}, ${appName} te ha puesto cartel: ${amountText} pendiente. Cuando aparezca el pago lo doy por cazado.`,
-    }
+    const collectMessage = renderReminderTemplate(reminderTemplates[reminderTone] || defaultReminderTemplates[reminderTone], {
+      app: appName,
+      amount: amountText,
+      name: person.name,
+      owner: ownerName,
+    })
     const payMessages: Record<ReminderTone, string> = {
       suave: `${person.name}, tengo pendiente pagarte ${amountText}. Te paso el detalle y dime como prefieres que te lo mande.`,
       directo: `${person.name}, te debo ${amountText}. Lo dejo apuntado aqui y lo marco cerrado en cuanto te pague.`,
+      seria: `${person.name}, tengo pendiente pagarte ${amountText}. Dime forma de pago y lo cierro hoy.`,
       ultimo: `${person.name}, tengo que cerrar esta cuenta: te debo ${amountText}. Te paso el detalle para dejarlo resuelto cuanto antes.`,
       broma: `${person.name}, ${appName} me ha puesto cartel a mi: te debo ${amountText}. Pasame forma de pago y me pongo al dia.`,
     }
     if (balance === 0) return `${person.name} esta a cero con ${ownerName}. No hay saldo pendiente en ${appName}.`
-    return balance > 0 ? collectMessages[reminderTone] : payMessages[reminderTone]
+    return balance > 0 ? collectMessage : payMessages[reminderTone]
   }
 
   async function deletePerson(id: string) {
@@ -3976,6 +4188,19 @@ function App() {
           <p className={`sync-pill ${syncMode}`}>{syncMessage} / {activeGroup ? activeGroup.name : 'Personal'}</p>
         </div>
         <div className="topbar-actions">
+          <button
+            aria-label={`Avisos internos${unreadNotificationCount ? ` ${unreadNotificationCount}` : ''}`}
+            className={`icon-button bell-button ${unreadNotificationCount ? 'has-unread' : ''}`}
+            type="button"
+            title="Avisos internos"
+            onClick={() => {
+              setTab('resumen')
+              markInternalNotificationsRead()
+            }}
+          >
+            <BellRing aria-hidden="true" />
+            {unreadNotificationCount > 0 && <span>{unreadNotificationCount}</span>}
+          </button>
           <button aria-label="Privacidad visual" className="icon-button" type="button" title={privacyHidden ? 'Mostrar' : 'Privacidad'} onClick={() => setPrivacyHidden((value) => !value)}>
             {privacyHidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
           </button>
@@ -4103,38 +4328,50 @@ function App() {
           </div>
 
           <aside className="side-column">
-            {paymentConfirmations.length > 0 && (
-              <section className="panel confirmation-panel">
-                <div className="section-heading compact">
-                  <h2>Pagos avisados</h2>
-                  <BellRing aria-hidden="true" />
-                </div>
-                <div className="confirmation-list">
-                  {paymentConfirmations.map((confirmation) => {
-                    const needsSwitch = Boolean(confirmation.ledgerId && confirmation.ledgerId !== activeLedgerId)
-                    return (
-                      <article className="confirmation-card" key={confirmation.id}>
-                        <span>
-                          <strong>{confirmation.payerName}</strong>
-                          <small>{confirmation.message}</small>
-                        </span>
+            <section className="panel confirmation-panel">
+              <div className="section-heading compact">
+                <h2>Panel de avisos</h2>
+                <BellRing aria-hidden="true" />
+              </div>
+              <div className="pro-status-grid">
+                <div><span>Pendientes</span><strong>{pendingConfirmations.length}</strong></div>
+                <div><span>Aceptados</span><strong>{acceptedConfirmations.length}</strong></div>
+                <div><span>Rechazados</span><strong>{dismissedConfirmations.length}</strong></div>
+              </div>
+              <div className="confirmation-list">
+                {paymentConfirmations.length === 0 && <EmptyState text="No hay pagos avisados todavia." />}
+                {paymentConfirmations.slice(0, 8).map((confirmation) => {
+                  const needsSwitch = Boolean(confirmation.ledgerId && confirmation.ledgerId !== activeLedgerId)
+                  return (
+                    <article className={`confirmation-card ${confirmation.status}`} key={confirmation.id}>
+                      <span>
+                        <strong>{confirmation.payerName}</strong>
+                        <small>{confirmation.message}</small>
+                        <small>{new Date(confirmation.createdAt).toLocaleString('es-ES')}{confirmation.resolvedAt ? ` / resuelto ${new Date(confirmation.resolvedAt).toLocaleString('es-ES')}` : ''}</small>
+                      </span>
+                      <div className="confirmation-meta">
                         <em>{formatMoney(confirmation.amount)}</em>
+                        <b>{confirmation.status === 'pending' ? 'Pendiente' : confirmation.status === 'accepted' ? 'Aceptado' : 'Rechazado'}</b>
+                      </div>
+                      {confirmation.proofText && <p className="proof-note">{confirmation.proofText}</p>}
+                      {confirmation.proofImage && <a className="proof-link" href={confirmation.proofImage} target="_blank" rel="noreferrer">Ver captura/Bizum</a>}
+                      {confirmation.status === 'pending' && (
                         <div className="button-row">
                           <button className="primary-button" type="button" onClick={() => acceptPaymentConfirmation(confirmation)}>
                             <CheckCircle2 aria-hidden="true" />
-                            {needsSwitch ? 'Abrir cuenta' : 'Aceptar'}
+                            {needsSwitch ? 'Abrir cuenta' : 'Aceptar y liquidar'}
                           </button>
                           <button className="secondary-button" type="button" onClick={() => resolvePaymentConfirmation(confirmation, 'dismissed')}>
                             <X aria-hidden="true" />
-                            Ignorar
+                            Rechazar
                           </button>
                         </div>
-                      </article>
-                    )
-                  })}
-                </div>
-              </section>
-            )}
+                      )}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
 
             <section className="panel mini-stats">
               <div className="section-heading compact">
@@ -4164,12 +4401,33 @@ function App() {
               <label className="tone-picker">
                 Tono de recordatorio
                 <select value={reminderTone} onChange={(event) => setReminderTone(event.target.value as ReminderTone)}>
-                  <option value="suave">Suave</option>
-                  <option value="directo">Directo</option>
-                  <option value="ultimo">Ultimo aviso</option>
-                  <option value="broma">Broma</option>
+                  {Object.entries(reminderToneLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
                 </select>
               </label>
+              <button className="secondary-button full-button" type="button" onClick={() => setTemplateEditorOpen((value) => !value)}>
+                <Edit3 aria-hidden="true" />
+                Plantillas WhatsApp
+              </button>
+              {templateEditorOpen && (
+                <div className="template-editor">
+                  {Object.entries(reminderToneLabels).map(([value, label]) => (
+                    <label key={value}>
+                      {label}
+                      <textarea
+                        value={reminderTemplates[value as ReminderTone]}
+                        onChange={(event) => updateReminderTemplate(value as ReminderTone, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                  <small>Variables: {'{nombre}'}, {'{importe}'}, {'{yo}'}, {'{app}'}.</small>
+                  <button className="secondary-button" type="button" onClick={resetReminderTemplates}>
+                    <RotateCcw aria-hidden="true" />
+                    Restaurar plantillas
+                  </button>
+                </div>
+              )}
             </section>
 
             <section className="panel risk-panel">
@@ -4197,6 +4455,25 @@ function App() {
               </div>
             </section>
 
+            <section className="panel ranking-panel">
+              <div className="section-heading compact">
+                <h2>Ranking</h2>
+                <BarChart3 aria-hidden="true" />
+              </div>
+              <div className="ranking-list">
+                {fullDebtorRanking.length === 0 && <EmptyState text="Todavia no hay ranking." />}
+                {fullDebtorRanking.map((item, index) => (
+                  <button className="ranking-row" key={item.person.id} onClick={() => setSelectedPersonId(item.person.id)} type="button">
+                    <span>{index + 1}</span>
+                    <Avatar name={item.person.name} src={item.person.avatar} />
+                    <strong>{item.person.name}</strong>
+                    <small>{item.openCount} abiertos / {item.paidCount} pagados</small>
+                    <em className={item.balance >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(item.balance)}</em>
+                  </button>
+                ))}
+              </div>
+            </section>
+
             {activeTripMode && (
               <section className="panel trip-panel">
                 <div className="section-heading compact">
@@ -4214,6 +4491,15 @@ function App() {
                     <strong className={tripRemaining >= 0 ? 'amount-positive' : 'amount-negative'}>{formatMoney(tripRemaining)}</strong>
                   </div>
                 )}
+                <div className="trip-days">
+                  {tripDailyStats.length === 0 && <EmptyState text="Sin gastos diarios aun." />}
+                  {tripDailyStats.map(([tripDate, total]) => (
+                    <div className="trip-day" key={tripDate}>
+                      <span>{tripDate}</span>
+                      <strong>{formatMoney(total)}</strong>
+                    </div>
+                  ))}
+                </div>
               </section>
             )}
 
@@ -4270,9 +4556,25 @@ function App() {
               </div>
               <p className="panel-copy">En iPhone, abre CazaMorosos desde el icono de la pantalla de inicio y activa esto. Te avisara cuando alguien pulse que ha pagado.</p>
               <div className="notification-status">
-                <span>Pagos avisados</span>
-                <strong>{paymentConfirmations.length}</strong>
+                <span>Sin leer / pagos pendientes</span>
+                <strong>{unreadNotificationCount} / {pendingConfirmations.length}</strong>
               </div>
+              <div className="internal-notification-list">
+                {internalNotifications.length === 0 && <EmptyState text="No hay avisos internos pendientes." />}
+                {internalNotifications.map((item) => (
+                  <button className={`internal-notification ${item.tone} ${readNotificationIds.includes(item.id) ? 'read' : ''}`} key={item.id} type="button" onClick={() => openInternalNotification(item)}>
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>{item.body}</small>
+                    </span>
+                    {!readNotificationIds.includes(item.id) && <em>Nuevo</em>}
+                  </button>
+                ))}
+              </div>
+              <button className="secondary-button full-button" type="button" onClick={markInternalNotificationsRead}>
+                <CheckCircle2 aria-hidden="true" />
+                Marcar avisos vistos
+              </button>
               <button className="secondary-button full-button" type="button" onClick={enableNotifications}>
                 <BellRing aria-hidden="true" />
                 Activar notificaciones
@@ -4448,6 +4750,10 @@ function App() {
                   <Download aria-hidden="true" />
                   Copia JSON
                 </button>
+                <button className="secondary-button" type="button" onClick={downloadAutoBackup}>
+                  <Download aria-hidden="true" />
+                  Backup auto
+                </button>
                 <button className="secondary-button" type="button" onClick={() => setPrivacyHidden((value) => !value)}>
                   {privacyHidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
                   Privacidad
@@ -4463,6 +4769,11 @@ function App() {
                   Actualizar app
                 </button>
               </div>
+              <label className="backup-toggle">
+                <input checked={autoBackupEnabled} onChange={(event) => setAutoBackupEnabled(event.target.checked)} type="checkbox" />
+                Backup automatico local
+                <small>{lastBackupAt ? `Ultima copia: ${new Date(lastBackupAt).toLocaleString('es-ES')}` : 'Se guarda en este dispositivo al cambiar datos.'}</small>
+              </label>
               <div className="pin-box">
                 <label>
                   PIN de privacidad
@@ -5302,6 +5613,14 @@ function App() {
                   <SlidersHorizontal aria-hidden="true" />
                   Revisar
                 </button>
+                <button className="secondary-button" type="button" onClick={() => updatePersonFollow(selectedPerson, { followStatus: 'habitual' })}>
+                  <BellRing aria-hidden="true" />
+                  Habitual
+                </button>
+                <button className="secondary-button" type="button" onClick={() => updatePersonFollow(selectedPerson, { followStatus: 'bloqueado' })}>
+                  <X aria-hidden="true" />
+                  No insistir
+                </button>
               </div>
             </div>
 
@@ -5459,6 +5778,9 @@ function App() {
 
 function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
   const [confirmationStatus, setConfirmationStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [proofText, setProofText] = useState('')
+  const [proofImage, setProofImage] = useState('')
+  const [proofError, setProofError] = useState('')
   const ownerName = payload.ownerName || appName
   const canConfirmPayment = payload.tone === 'collect' && payload.amount > 0 && Boolean(payload.ownerId && firestore)
   const title =
@@ -5517,6 +5839,38 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
         <div className="public-confirm-box">
           {canConfirmPayment ? (
             <>
+              <label className="public-proof-field">
+                Nota de pago
+                <input
+                  disabled={confirmationStatus === 'sent'}
+                  onChange={(event) => setProofText(event.target.value)}
+                  placeholder="Bizum enviado, efectivo, transferencia..."
+                  value={proofText}
+                />
+              </label>
+              <label className="public-proof-upload">
+                <Paperclip aria-hidden="true" />
+                {proofImage ? 'Captura adjunta' : 'Adjuntar captura opcional'}
+                <input
+                  accept="image/*"
+                  disabled={confirmationStatus === 'sent'}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0]
+                    if (!file) return
+                    setProofError('')
+                    try {
+                      setProofImage(await proofFileToData(file))
+                    } catch {
+                      setProofError('La captura pesa demasiado. Prueba con otra imagen.')
+                    } finally {
+                      event.target.value = ''
+                    }
+                  }}
+                  type="file"
+                />
+              </label>
+              {proofImage && <img className="public-proof-preview" alt="Captura del pago" src={proofImage} />}
+              {proofError && <p className="public-confirm-error">{proofError}</p>}
               <button
                 className="public-confirm-button"
                 disabled={confirmationStatus === 'sending' || confirmationStatus === 'sent'}
@@ -5527,7 +5881,9 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
                   const searchParams = new URLSearchParams(window.location.search)
                   const qrid = searchParams.get('p') || searchParams.get('qrid') || uid()
                   const confirmationId = uid()
-                  const message = `${payload.title} avisa que ha pagado ${formatMoney(payload.amount)}.`
+                  const message = proofText.trim()
+                    ? `${payload.title} avisa que ha pagado ${formatMoney(payload.amount)}: ${proofText.trim()}`
+                    : `${payload.title} avisa que ha pagado ${formatMoney(payload.amount)}.`
                   try {
                     const confirmation = {
                       id: confirmationId,
@@ -5539,6 +5895,8 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
                       payerName: payload.title,
                       amount: payload.amount,
                       message,
+                      proofText: proofText.trim() || undefined,
+                      proofImage: proofImage || undefined,
                       status: 'pending',
                       createdAt: new Date().toISOString(),
                     } satisfies PaymentConfirmation

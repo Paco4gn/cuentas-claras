@@ -83,7 +83,7 @@ test('paid movements do not affect live balances', async ({ page }) => {
 
   await expect(page.getByRole('article').filter({ hasText: 'Debo' }).getByRole('strong')).toHaveText('0,00 €')
   await expect(page.getByRole('article').filter({ hasText: 'Saldo neto' }).getByRole('strong')).toHaveText('0,00 €')
-  await expect(page.getByText('Rosa Paid').locator('..').locator('..')).toContainText('0,00 €')
+  await expect(page.getByRole('article').filter({ hasText: 'Rosa Paid' })).toContainText('0,00 €')
   assertNoErrors()
 })
 
@@ -220,7 +220,7 @@ test('person sheet can register a partial payment and keep the remaining balance
   })
   await personSheet.getByRole('button', { name: /Pago parcial/i }).click()
   await expect(page.getByText(/Pago parcial de 7,00/i)).toBeVisible()
-  await expect(personSheet.locator('.follow-chip', { hasText: 'Revisar' })).toBeVisible()
+  await expect(personSheet.locator('.follow-chip', { hasText: 'Pago parcial' })).toBeVisible()
   await expect(personSheet.getByText('13,00')).toBeVisible()
 
   await personSheet.getByRole('button', { name: /Avisado hoy/i }).click()
@@ -707,6 +707,33 @@ test('local dashboard can enable iPhone-style payment notifications', async ({ p
   await expect(page.getByText(/Permiso activo/i)).toBeVisible()
   const notificationCalls = await page.evaluate(() => (window as typeof window & { __notificationCalls: { title: string; options?: NotificationOptions }[] }).__notificationCalls)
   expect(notificationCalls.some((call) => call.title === 'CazaMorosos')).toBe(true)
+  assertNoErrors()
+})
+
+test('dashboard has editable WhatsApp templates, internal reminders and automatic backup', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Pro Panel')
+  await addPerson(page, 'Raul Pro')
+  await addDebt(page, 'Cena panel', '9')
+
+  await expect(page.getByLabel(/Avisos internos/i)).toBeVisible()
+  await expect(page.getByText(/Toca recordar a Raul Pro/i)).toBeVisible()
+
+  await page.getByLabel('Tono de recordatorio').selectOption('directo')
+  await page.getByRole('button', { name: /Plantillas WhatsApp/i }).click()
+  await page.getByRole('textbox', { name: 'Normal' }).fill('Cobro QA para {nombre}: {importe} en {app}.')
+  await page.getByRole('button', { name: /QR de cobro/i }).first().click()
+  const qrDialog = page.getByRole('dialog', { name: /QR de cobro/i })
+  await expect(qrDialog).toBeVisible()
+  await expect(qrDialog).toContainText('Cobro QA para Raul Pro: 9,00')
+  await qrDialog.getByRole('button', { name: /^Cerrar$/i }).click()
+
+  const autoBackupDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: /Backup auto/i }).click()
+  expect((await autoBackupDownload).suggestedFilename()).toMatch(/cazamorosos-backup-auto-.*\.json/)
+
+  await page.getByRole('button', { name: /Marcar avisos vistos/i }).click()
+  await expect(page.getByText(/Avisos internos marcados como vistos/i)).toBeVisible()
   assertNoErrors()
 })
 
