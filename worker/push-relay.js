@@ -47,15 +47,16 @@ export default {
       const results = await Promise.allSettled(
         tokens.map((item) => sendFcmMessage(env, accessToken, item.token, notification)),
       )
+      const sent = results.filter((result) => result.status === 'fulfilled').length
       const invalidDeletes = results.map((result, index) => {
         if (result.status !== 'rejected' || !isInvalidTokenError(result.reason)) return null
         return deleteFirestoreDoc(env, accessToken, tokens[index].docPath)
       }).filter(Boolean)
       await Promise.allSettled(invalidDeletes)
-      await markConfirmationNotified(env, accessToken, ownerId, confirmationId)
+      const marked = sent > 0
+      if (marked) await markConfirmationNotified(env, accessToken, ownerId, confirmationId)
 
-      const sent = results.filter((result) => result.status === 'fulfilled').length
-      return json({ ok: true, sent, failed: results.length - sent })
+      return json({ ok: true, sent, failed: results.length - sent, invalidTokens: invalidDeletes.length, marked })
     } catch (error) {
       return json({ ok: false, error: error instanceof Error ? error.message : 'unknown_error' }, 500)
     }
@@ -154,7 +155,10 @@ async function listNotificationTokens(env, accessToken, ownerId) {
 }
 
 async function deleteFirestoreDoc(env, accessToken, fullDocName) {
-  const response = await fetch(fullDocName, {
+  const docUrl = fullDocName.startsWith('https://')
+    ? fullDocName
+    : `https://firestore.googleapis.com/v1/${fullDocName}`
+  const response = await fetch(docUrl, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${accessToken}` },
   })
