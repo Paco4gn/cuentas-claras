@@ -5,6 +5,191 @@
   margin: 0 auto;
 }
 
+.dark-mode {
+  --bg: #10161d;
+  --surface: #17212b;
+  --surface-raised: #1d2935;
+  --surface-soft: #101923;
+  --muted: #223140;
+  --border: #2b3b4c;
+  --border-strong: #4b6075;
+  --text: #d7e0ea;
+  --text-soft: #98a8ba;
+  --text-strong: #f8fafc;
+  --accent: #2dd4bf;
+  --accent-strong: #14b8a6;
+  --accent-soft: rgba(45, 212, 191, 0.16);
+  --shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  --shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.22);
+  background:
+    linear-gradient(180deg, rgba(20, 184, 166, 0.11), transparent 280px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(190, 18, 60, 0.06)),
+    var(--bg);
+}
+
+.dark-mode .ledger-switcher button.active,
+.dark-mode .tabs button.active {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.dark-mode .secondary-button,
+.dark-mode .icon-button,
+.dark-mode input,
+.dark-mode select,
+.dark-mode textarea {
+  background: var(--surface-soft);
+  color: var(--text-strong);
+}
+
+.global-search-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.global-search-box {
+  margin: 0;
+}
+
+.global-results {
+  display: grid;
+  gap: 8px;
+}
+
+.global-results button,
+.quick-action-grid button,
+.shortcut-list a,
+.document-row {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-strong);
+  display: flex;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.global-results button {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.global-results small,
+.document-row small {
+  color: var(--text-soft);
+  display: block;
+  font-size: 12px;
+}
+
+.quick-action-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-action-grid button {
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  justify-content: flex-start;
+}
+
+.quick-action-grid button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.detector-panel .risk-detection {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+}
+
+.detector-panel .risk-detection .secondary-button {
+  grid-column: 1 / -1;
+  justify-content: center;
+}
+
+.shortcut-list,
+.document-list {
+  display: grid;
+  gap: 8px;
+}
+
+.shortcut-list a {
+  font-weight: 800;
+}
+
+.person-documents {
+  display: grid;
+  gap: 10px;
+}
+
+.person-documents .file-button {
+  align-items: center;
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  color: var(--text-strong);
+  cursor: pointer;
+  display: flex;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 46px;
+  padding: 12px;
+}
+
+.document-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.document-row a {
+  color: var(--text-strong);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-nav {
+  padding-bottom: 104px;
+}
+
+.mobile-nav .tabs {
+  backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.92);
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow);
+  gap: 5px;
+  left: 10px;
+  margin: 0;
+  padding: 7px;
+  position: fixed;
+  right: 10px;
+  top: auto;
+  transform: translateZ(0);
+  z-index: 1200;
+}
+
+.dark-mode.mobile-nav .tabs {
+  background: rgba(23, 33, 43, 0.92);
+}
+
+.mobile-nav .tabs button {
+  min-height: 52px;
+}
+
+.mobile-nav .topbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .auth-shell {
   display: grid;
   place-items: center;
@@ -237,7 +422,14 @@ button svg,
   padding: 5px;
   position: sticky;
   top: 8px;
-  z-index: 2;
+  z-index: 120;
+}
+
+.health-strip,
+.summary-grid,
+.balance-rail {
+  position: relative;
+  z-index: 0;
 }
 
 .tabs button,
@@ -2456,7 +2648,9 @@ button:focus-visible {
     right: 10px;
     left: 10px;
     top: auto;
-    z-index: 40;
+    pointer-events: auto;
+    transform: translateZ(0);
+    z-index: 1200;
   }
 
   .tabs button {
@@ -2831,7 +3025,7 @@ button:focus-visible {
   background: rgba(255, 255, 255, 0.86);
   box-shadow: var(--shadow-soft);
   isolation: isolate;
-  z-index: 80;
+  z-index: 1200;
 }
 
 .tabs button {
@@ -3203,7 +3397,7 @@ button:focus-visible {
     margin: 0;
     padding: 7px;
     right: 10px;
-    z-index: 80;
+    z-index: 1200;
   }
 
   .tabs button {

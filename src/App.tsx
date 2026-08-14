@@ -44,6 +44,7 @@ import {
   Link2,
   Lock,
   LogOut,
+  Moon,
   MessageCircle,
   Mic,
   Paperclip,
@@ -58,6 +59,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Star,
+  Sun,
   Tag,
   Trash2,
   Upload,
@@ -84,6 +86,25 @@ type SyncMode = 'cloud' | 'local'
 type ReminderTone = 'suave' | 'directo' | 'seria' | 'ultimo' | 'broma'
 type PersonFollowStatus = 'normal' | 'avisado' | 'prometio' | 'parcial' | 'revisar' | 'habitual' | 'bloqueado'
 type ReminderTemplates = Record<ReminderTone, string>
+type ThemeMode = 'light' | 'dark'
+
+interface PersonDocument {
+  id: string
+  name: string
+  data: string
+  createdAt: string
+}
+
+interface ReminderLog {
+  id: string
+  personId: string
+  personName: string
+  amount: number
+  channel: 'whatsapp' | 'manual' | 'campaign'
+  tone: ReminderTone
+  message: string
+  createdAt: string
+}
 
 interface User {
   id: string
@@ -137,6 +158,7 @@ interface Person {
   promisedDate?: string
   lastReminderAt?: string
   lastPaymentAt?: string
+  documents?: PersonDocument[]
   createdAt: string
 }
 
@@ -883,6 +905,20 @@ function loadReminderTemplates(userId?: string): ReminderTemplates {
   }
 }
 
+function reminderLogKey(userId: string, ledgerId: string) {
+  return `cazamorosos-reminder-log-${userId}-${ledgerId}`
+}
+
+function loadReminderLogs(userId?: string, ledgerId?: string): ReminderLog[] {
+  if (!userId || !ledgerId) return []
+  try {
+    const raw = localStorage.getItem(reminderLogKey(userId, ledgerId))
+    return raw ? JSON.parse(raw) as ReminderLog[] : []
+  } catch {
+    return []
+  }
+}
+
 function renderReminderTemplate(template: string, values: { app: string; amount: string; name: string; owner: string }) {
   return template
     .replaceAll('{app}', values.app)
@@ -1517,6 +1553,10 @@ function App() {
   const [lastBackupAt, setLastBackupAt] = useState('')
   const [syncMode, setSyncMode] = useState<SyncMode>(isFirebaseConfigured ? 'cloud' : 'local')
   const [syncMessage, setSyncMessage] = useState(isFirebaseConfigured ? 'Firebase activo' : 'Modo local')
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => (localStorage.getItem('cazamorosos-theme') === 'dark' ? 'dark' : 'light'))
+  const [reminderLogs, setReminderLogs] = useState<ReminderLog[]>([])
+  const [mobileNav, setMobileNav] = useState(() => typeof window !== 'undefined' && (window.innerWidth <= 900 || window.matchMedia?.('(pointer: coarse)').matches))
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null
   const activeLedgerId = activeGroup?.id ?? currentUser?.id ?? ''
   const isSharedLedger = Boolean(activeGroup)
@@ -1528,6 +1568,52 @@ function App() {
     setReadNotificationIds(JSON.parse(localStorage.getItem(`cazamorosos-read-notifications-${currentUser.id}`) || '[]') as string[])
     setAutoBackupEnabled(localStorage.getItem(`cazamorosos-auto-backup-enabled-${currentUser.id}`) !== 'false')
     setLastBackupAt(localStorage.getItem(`cazamorosos-last-backup-at-${currentUser.id}`) || '')
+  }, [currentUser])
+
+  useEffect(() => {
+    if (!currentUser || !activeLedgerId) {
+      setReminderLogs([])
+      return
+    }
+    setReminderLogs(loadReminderLogs(currentUser.id, activeLedgerId))
+  }, [activeLedgerId, currentUser])
+
+  useEffect(() => {
+    localStorage.setItem('cazamorosos-theme', themeMode)
+  }, [themeMode])
+
+  useEffect(() => {
+    const updateMobileNav = () => setMobileNav(window.innerWidth <= 900 || window.matchMedia?.('(pointer: coarse)').matches || false)
+    updateMobileNav()
+    window.addEventListener('resize', updateMobileNav)
+    return () => window.removeEventListener('resize', updateMobileNav)
+  }, [])
+
+  useEffect(() => {
+    if (!currentUser || !activeLedgerId) return
+    localStorage.setItem(reminderLogKey(currentUser.id, activeLedgerId), JSON.stringify(reminderLogs.slice(0, 80)))
+  }, [activeLedgerId, currentUser, reminderLogs])
+
+  useEffect(() => {
+    if (!currentUser) return
+    const params = new URLSearchParams(window.location.search)
+    const action = params.get('accion')
+    const openNotices = params.get('avisos')
+    if (action === 'nuevo') {
+      setTab('nuevo')
+      setNotice('Atajo abierto: nuevo movimiento.')
+    }
+    if (action === 'ticket') {
+      setTab('nuevo')
+      setNotice('Atajo abierto: sube un ticket y te pregunto producto por producto.')
+    }
+    if (openNotices) {
+      setTab('resumen')
+      setNotice('Atajo abierto: panel de avisos.')
+    }
+    if (action || openNotices) {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
   }, [currentUser])
 
   useEffect(() => {
@@ -2004,10 +2090,15 @@ function App() {
     () => (selectedPerson ? selectedPersonRecords.filter((record) => recordHasOpenImpactForPerson(record, selectedPerson.id)) : []),
     [selectedPerson, selectedPersonRecords],
   )
+  const selectedPersonReminderLogs = useMemo(
+    () => (selectedPerson ? reminderLogs.filter((log) => log.personId === selectedPerson.id).slice(0, 6) : []),
+    [reminderLogs, selectedPerson],
+  )
   const selectedPersonTimeline = useMemo(
     () =>
       selectedPerson
-        ? selectedPersonRecords.slice(0, 8).map((record) => {
+        ? [
+          ...selectedPersonRecords.slice(0, 8).map((record) => {
           const impact = personRecordImpact(record, selectedPerson.id)
           return {
             id: record.id,
@@ -2016,10 +2107,21 @@ function App() {
             impact,
             status: statusLabels[record.status],
             detail: `${kindLabels[record.kind]} - ${formatMoney(impact)}`,
+            source: 'record' as const,
           }
-        })
+          }),
+          ...selectedPersonReminderLogs.map((log) => ({
+            id: log.id,
+            title: `Aviso ${log.channel === 'campaign' ? 'de campana' : log.channel === 'whatsapp' ? 'WhatsApp' : 'manual'}`,
+            date: log.createdAt.slice(0, 10),
+            impact: log.amount,
+            status: reminderToneLabels[log.tone],
+            detail: log.message,
+            source: 'reminder' as const,
+          })),
+        ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10)
         : [],
-    [selectedPerson, selectedPersonRecords],
+    [selectedPerson, selectedPersonRecords, selectedPersonReminderLogs],
   )
   const selectedPersonTags = useMemo(() => {
     const totals = new Map<string, number>()
@@ -2104,6 +2206,22 @@ function App() {
     })
     return [...months.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6)
   }, [records])
+  const weeklySummary = useMemo(() => {
+    const start = new Date()
+    start.setDate(start.getDate() - 7)
+    const weekRecords = records.filter((record) => new Date(record.date).getTime() >= start.getTime())
+    const recovered = weekRecords
+      .filter((record) => record.kind === 'payment' || record.status === 'pagado')
+      .reduce((sum, record) => sum + Math.abs(record.amount), 0)
+    const created = weekRecords.filter((record) => record.status !== 'pagado').reduce((sum, record) => sum + Math.abs(record.amount), 0)
+    const activePeople = new Set(weekRecords.flatMap((record) => [...computeSignedByPerson(record).keys()]))
+    return {
+      created: Number(created.toFixed(2)),
+      recovered: Number(recovered.toFixed(2)),
+      records: weekRecords.length,
+      people: activePeople.size,
+    }
+  }, [records])
   const activeTripMode = activeGroup?.mode === 'viaje'
   const tripBudget = activeGroup?.budget ?? 0
   const tripDailyStats = useMemo(() => {
@@ -2126,6 +2244,45 @@ function App() {
   const pendingConfirmations = paymentConfirmations.filter((confirmation) => confirmation.status === 'pending')
   const acceptedConfirmations = paymentConfirmations.filter((confirmation) => confirmation.status === 'accepted')
   const dismissedConfirmations = paymentConfirmations.filter((confirmation) => confirmation.status === 'dismissed')
+  const savedTickets = useMemo(
+    () => sortRecords(records.filter((record) => record.tags.includes('ticket') || /^ticket\b/i.test(record.title))).slice(0, 8),
+    [records],
+  )
+  const riskDetections = useMemo(() => {
+    return sortedPeople
+      .map((person) => {
+        const balance = balances.get(person.id) ?? 0
+        const openRecords = records.filter((record) => recordHasOpenImpactForPerson(record, person.id))
+        const overdueCount = openRecords.filter((record) => record.dueDate && daysUntil(record.dueDate) < 0).length
+        const remindedCount = reminderLogs.filter((log) => log.personId === person.id).length
+        const score = Math.max(balance, 0) + overdueCount * 12 + remindedCount * 4 + openRecords.length * 2
+        const reason = overdueCount
+          ? `${overdueCount} vencido${overdueCount === 1 ? '' : 's'}`
+          : remindedCount >= 2
+            ? `${remindedCount} avisos enviados`
+            : `${openRecords.length} abierto${openRecords.length === 1 ? '' : 's'}`
+        return { balance, openCount: openRecords.length, overdueCount, person, reason, score }
+      })
+      .filter((item) => item.balance > 0.009 && item.openCount > 0 && item.person.followStatus !== 'bloqueado' && item.score >= 12)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+  }, [balances, records, reminderLogs, sortedPeople])
+  const globalResults = useMemo(() => {
+    const term = globalSearch.trim().toLowerCase()
+    if (!term) return []
+    const personResults = people
+      .filter((person) => [person.name, person.phone, person.email, person.notes, person.ticketRules].some((value) => (value ?? '').toLowerCase().includes(term)))
+      .map((person) => ({ id: `person-${person.id}`, type: 'Persona', title: person.name, detail: `${formatMoney(balances.get(person.id) ?? 0)} / ${followStatusLabels[person.followStatus ?? 'normal']}`, personId: person.id }))
+    const recordResults = records
+      .filter((record) => [record.title, record.note, record.tags.join(' ')].some((value) => value.toLowerCase().includes(term)))
+      .slice(0, 8)
+      .map((record) => ({ id: `record-${record.id}`, type: record.tags.includes('ticket') ? 'Ticket' : 'Movimiento', title: record.title, detail: `${record.date} / ${formatMoney(record.amount)} / ${statusLabels[record.status]}`, recordId: record.id }))
+    const reminderResults = reminderLogs
+      .filter((log) => [log.personName, log.message].some((value) => value.toLowerCase().includes(term)))
+      .slice(0, 5)
+      .map((log) => ({ id: `reminder-${log.id}`, type: 'Aviso', title: log.personName, detail: `${new Date(log.createdAt).toLocaleDateString('es-ES')} / ${formatMoney(log.amount)}`, personId: log.personId }))
+    return [...personResults, ...recordResults, ...reminderResults].slice(0, 10)
+  }, [balances, globalSearch, people, records, reminderLogs])
   const internalNotifications = useMemo(() => {
     const promiseAlerts = people
       .filter((person) => person.promisedDate && person.promisedDate <= today && Math.abs(balances.get(person.id) ?? 0) > 0.009)
@@ -2192,6 +2349,86 @@ function App() {
       return
     }
     setTab(action.id === 'new' ? 'nuevo' : 'historial')
+  }
+
+  function openGlobalResult(result: { personId?: string; recordId?: string }) {
+    setGlobalSearch('')
+    if (result.personId) {
+      setSelectedPersonId(result.personId)
+      return
+    }
+    if (result.recordId) {
+      const record = records.find((candidate) => candidate.id === result.recordId)
+      if (record) startEditRecord(record)
+      return
+    }
+    setTab('historial')
+  }
+
+  function logReminder(person: Person, channel: ReminderLog['channel'], message?: string) {
+    const balance = Number((balances.get(person.id) ?? 0).toFixed(2))
+    const ownerName = currentUser?.name || appName
+    const finalMessage = message || reminderMessage(person, balance, ownerName)
+    setReminderLogs((current) => [
+      {
+        id: uid(),
+        personId: person.id,
+        personName: person.name,
+        amount: Math.abs(balance),
+        channel,
+        tone: reminderTone,
+        message: finalMessage,
+        createdAt: new Date().toISOString(),
+      },
+      ...current,
+    ].slice(0, 80))
+  }
+
+  async function savePersonDocument(person: Person, event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const attachmentData = await attachmentFileToData(file)
+      const documents = [
+        { id: uid(), name: attachmentData.name, data: attachmentData.data, createdAt: new Date().toISOString() },
+        ...(person.documents ?? []),
+      ].slice(0, 8)
+      await persistPerson({ ...person, documents })
+      if (syncMode === 'local') await refreshData()
+      setNotice('Documento guardado en la ficha.')
+    } catch {
+      setNotice('Ese documento pesa demasiado. Usa una captura o PDF pequeno.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  async function removePersonDocument(person: Person, documentId: string) {
+    await persistPerson({ ...person, documents: (person.documents ?? []).filter((document) => document.id !== documentId) })
+    if (syncMode === 'local') await refreshData()
+    setNotice('Documento eliminado.')
+  }
+
+  function startRecurringForPerson(person: Person) {
+    const balance = Math.abs(Number((balances.get(person.id) ?? 0).toFixed(2)))
+    setKind('debt')
+    setTitle(`Cuota recurrente de ${person.name}`)
+    setAmount(balance > 0 ? String(balance) : '10')
+    setDate(today)
+    setDueDate(today)
+    setPersonId(person.id)
+    setDebtDirection('owes_me')
+    setStatus('por-pagar')
+    setRepeat('monthly')
+    setTagText('recurrente')
+    setNote(`Movimiento mensual preparado desde la ficha de ${person.name}.`)
+    setSelectedPersonId(null)
+    setTab('nuevo')
+    setNotice('Recurrente mensual preparada. Revisa importe y guarda.')
+  }
+
+  async function applyRiskStatus(person: Person) {
+    await updatePersonFollow(person, { followStatus: 'habitual' })
   }
 
   async function refreshData(ledgerId = activeLedgerId) {
@@ -2626,6 +2863,7 @@ function App() {
       promisedDate: personForm.promisedDate || undefined,
       lastReminderAt: previousPerson?.lastReminderAt,
       lastPaymentAt: previousPerson?.lastPaymentAt,
+      documents: previousPerson?.documents ?? [],
       createdAt: previousPerson?.createdAt ?? new Date().toISOString(),
     }
     setPersonSaving(true)
@@ -3526,6 +3764,7 @@ function App() {
     try {
       const payload = await buildPersonQrPayloadWithUrl(person, { short: Boolean(normalizeWhatsappPhone(person.phone)) })
       const result = await shareWantedPoster(payload, person.phone)
+      if (result !== 'cancelled') logReminder(person, 'whatsapp', payload.text)
       setNotice(
         result === 'shared'
           ? 'Hoja de compartir abierta con cartel PNG, texto y enlace corto de confirmacion.'
@@ -3582,6 +3821,7 @@ function App() {
       return
     }
     await sharePersonPoster(target.person)
+    logReminder(target.person, 'campaign')
     await persistPersonFollowQuiet(target.person, { followStatus: 'avisado', lastReminderAt: new Date().toISOString() })
     if (syncMode === 'local') await refreshData()
   }
@@ -3624,6 +3864,7 @@ function App() {
   }
 
   async function markPersonReminded(person: Person) {
+    logReminder(person, 'manual')
     await updatePersonFollow(person, { followStatus: 'avisado', lastReminderAt: new Date().toISOString() })
   }
 
@@ -4320,7 +4561,7 @@ function App() {
   }
 
   return (
-    <main className={`app-shell ${privacyHidden ? 'privacy-mode' : ''}`}>
+    <main className={`app-shell ${privacyHidden ? 'privacy-mode' : ''} ${themeMode === 'dark' ? 'dark-mode' : ''} ${mobileNav ? 'mobile-nav' : ''}`}>
       {notice && <div className="toast">{notice}</div>}
       <header className="topbar">
         <div>
@@ -4345,6 +4586,9 @@ function App() {
           <button aria-label="Privacidad visual" className="icon-button" type="button" title={privacyHidden ? 'Mostrar' : 'Privacidad'} onClick={() => setPrivacyHidden((value) => !value)}>
             {privacyHidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
           </button>
+          <button aria-label="Modo oscuro" className="icon-button" type="button" title={themeMode === 'dark' ? 'Modo claro' : 'Modo oscuro'} onClick={() => setThemeMode((value) => value === 'dark' ? 'light' : 'dark')}>
+            {themeMode === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          </button>
           {pinConfigured && (
             <button aria-label="Bloquear app" className="icon-button" type="button" title="Bloquear app" onClick={() => setPinLocked(true)}>
               <Lock aria-hidden="true" />
@@ -4355,6 +4599,28 @@ function App() {
           </button>
         </div>
       </header>
+
+      <section className="panel global-search-panel" aria-label="Busqueda global">
+        <label className="search-box global-search-box">
+          Buscar todo
+          <Search aria-hidden="true" />
+          <input value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} placeholder="Persona, ticket, etiqueta, aviso o movimiento" />
+        </label>
+        {globalSearch.trim() && (
+          <div className="global-results">
+            {globalResults.length === 0 && <EmptyState text="No encuentro nada con esa busqueda." />}
+            {globalResults.map((result) => (
+              <button key={result.id} type="button" onClick={() => openGlobalResult(result)}>
+                <span>
+                  <strong>{result.title}</strong>
+                  <small>{result.type} / {result.detail}</small>
+                </span>
+                <Search aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
       {syncMode === 'cloud' && (
         <section className="ledger-switcher" aria-label="Libreta activa">
@@ -4577,6 +4843,115 @@ function App() {
                   </button>
                 </div>
               )}
+            </section>
+
+            <section className="panel action-center-panel">
+              <div className="section-heading compact">
+                <h2>Centro de acciones</h2>
+                <WandSparkles aria-hidden="true" />
+              </div>
+              <div className="quick-action-grid">
+                <button type="button" onClick={() => setTab('nuevo')}>
+                  <Plus aria-hidden="true" />
+                  Movimiento
+                </button>
+                <button type="button" onClick={() => {
+                  setTab('nuevo')
+                  setNotice('Sube una foto o pega lineas del ticket.')
+                }}>
+                  <ReceiptText aria-hidden="true" />
+                  Ticket
+                </button>
+                <button type="button" disabled={campaignTargets.length === 0} onClick={launchNextCampaignReminder}>
+                  <MessageCircle aria-hidden="true" />
+                  Avisar
+                </button>
+                <button type="button" onClick={exportData}>
+                  <Download aria-hidden="true" />
+                  Backup
+                </button>
+              </div>
+            </section>
+
+            <section className="panel weekly-panel">
+              <div className="section-heading compact">
+                <h2>Semana</h2>
+                <BarChart3 aria-hidden="true" />
+              </div>
+              <div className="pro-status-grid">
+                <div><span>Nuevo</span><strong>{formatMoney(weeklySummary.created)}</strong></div>
+                <div><span>Recuperado</span><strong>{formatMoney(weeklySummary.recovered)}</strong></div>
+                <div><span>Personas</span><strong>{weeklySummary.people}</strong></div>
+              </div>
+              <p className="panel-copy">{weeklySummary.records ? `${weeklySummary.records} movimiento${weeklySummary.records === 1 ? '' : 's'} en los ultimos 7 dias.` : 'Semana limpia: sin movimientos nuevos.'}</p>
+            </section>
+
+            <section className="panel detector-panel">
+              <div className="section-heading compact">
+                <h2>Detector de riesgo</h2>
+                <SlidersHorizontal aria-hidden="true" />
+              </div>
+              <div className="risk-list">
+                {riskDetections.length === 0 && <EmptyState text="Sin alertas fuertes ahora mismo." />}
+                {riskDetections.map((item) => (
+                  <div className="risk-person risk-detection" key={item.person.id}>
+                    <Avatar name={item.person.name} src={item.person.avatar} />
+                    <span>
+                      <strong>{item.person.name}</strong>
+                      <small>{item.reason}</small>
+                    </span>
+                    <em>{formatMoney(item.balance)}</em>
+                    <button className="secondary-button" type="button" onClick={() => applyRiskStatus(item.person)}>
+                      Habitual
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel ticket-history-panel">
+              <div className="section-heading compact">
+                <h2>Tickets guardados</h2>
+                <ReceiptText aria-hidden="true" />
+              </div>
+              <div className="compact-records">
+                {savedTickets.length === 0 && <EmptyState text="Los tickets divididos apareceran aqui." />}
+                {savedTickets.map((record) => (
+                  <button className="compact-record" key={record.id} type="button" onClick={() => startEditRecord(record)}>
+                    <span>{record.date} / {record.title}</span>
+                    <strong>{formatMoney(record.amount)}</strong>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel reminder-log-panel">
+              <div className="section-heading compact">
+                <h2>Avisos enviados</h2>
+                <MessageCircle aria-hidden="true" />
+              </div>
+              <div className="compact-records">
+                {reminderLogs.length === 0 && <EmptyState text="Aun no has enviado ni marcado avisos." />}
+                {reminderLogs.slice(0, 6).map((log) => (
+                  <button className="compact-record" key={log.id} type="button" onClick={() => setSelectedPersonId(log.personId)}>
+                    <span>{new Date(log.createdAt).toLocaleString('es-ES')} / {log.personName}</span>
+                    <strong>{formatMoney(log.amount)}</strong>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel shortcuts-panel">
+              <div className="section-heading compact">
+                <h2>Atajos iPhone</h2>
+                <Link2 aria-hidden="true" />
+              </div>
+              <p className="panel-copy">Al anadir la app a pantalla de inicio, iOS puede mostrar accesos para crear movimiento, ticket y avisos.</p>
+              <div className="shortcut-list">
+                <a href="/cuentas-claras/?accion=nuevo">Nuevo movimiento</a>
+                <a href="/cuentas-claras/?accion=ticket">Subir ticket</a>
+                <a href="/cuentas-claras/?avisos=pagos">Panel de avisos</a>
+              </div>
             </section>
 
             <section className="panel risk-panel">
@@ -5850,6 +6225,10 @@ function App() {
                 <CircleDollarSign aria-hidden="true" />
                 Pago parcial
               </button>
+              <button className="secondary-button" type="button" onMouseDown={() => startRecurringForPerson(selectedPerson)} onPointerDown={() => startRecurringForPerson(selectedPerson)} onClick={() => startRecurringForPerson(selectedPerson)}>
+                <Repeat2 aria-hidden="true" />
+                Recurrente
+              </button>
               <button className="secondary-button" disabled={(balances.get(selectedPerson.id) ?? 0) === 0} type="button" onClick={() => {
                 setSelectedPersonId(null)
                 settlePerson(selectedPerson)
@@ -5903,6 +6282,30 @@ function App() {
               )}
             </div>
 
+            <div className="person-documents">
+              <div className="section-heading compact">
+                <h3>Documentos</h3>
+                <Paperclip aria-hidden="true" />
+              </div>
+              <label className="file-button">
+                <Paperclip aria-hidden="true" />
+                Adjuntar Bizum, captura o PDF
+                <input accept="image/*,.pdf,.txt" type="file" onChange={(event) => savePersonDocument(selectedPerson, event)} />
+              </label>
+              <div className="document-list">
+                {!(selectedPerson.documents ?? []).length && <EmptyState text="Sin documentos en la ficha." />}
+                {(selectedPerson.documents ?? []).map((document) => (
+                  <div className="document-row" key={document.id}>
+                    <a href={document.data} target="_blank" rel="noreferrer">{document.name}</a>
+                    <small>{new Date(document.createdAt).toLocaleDateString('es-ES')}</small>
+                    <button className="icon-button" type="button" aria-label={`Eliminar ${document.name}`} onClick={() => removePersonDocument(selectedPerson, document.id)}>
+                      <Trash2 aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="person-sheet-records">
               <div className="section-heading compact">
                 <h3>Timeline</h3>
@@ -5912,6 +6315,7 @@ function App() {
               {selectedPersonTimeline.map((entry) => {
                 return (
                   <button className="person-sheet-record" type="button" key={entry.id} onClick={() => {
+                    if (entry.source === 'reminder') return
                     const record = records.find((candidate) => candidate.id === entry.id)
                     if (!record) return
                     setSelectedPersonId(null)

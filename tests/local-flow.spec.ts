@@ -32,7 +32,7 @@ async function createLocalAccount(page: Page, name = 'Paco QA') {
 }
 
 async function addPerson(page: Page, name: string, phone = '') {
-  await page.getByRole('button', { name: /Personas/i }).click()
+  await page.locator('.tabs').getByRole('button', { name: /Personas/i }).click({ force: true })
   await page.getByRole('textbox', { name: 'Nombre' }).fill(name)
   if (phone) await page.getByLabel('Telefono').fill(phone)
   await page.getByRole('button', { name: /Anadir persona/i }).click()
@@ -40,7 +40,7 @@ async function addPerson(page: Page, name: string, phone = '') {
 }
 
 async function addDebt(page: Page, title: string, amount: string) {
-  await page.getByRole('button', { name: 'Nuevo', exact: true }).click()
+  await page.locator('.tabs').getByRole('button', { name: 'Nuevo', exact: true }).click({ force: true })
   await page.getByRole('button', { name: /^Deuda$/i }).click()
   await page.getByPlaceholder('Cena, alquiler, bizum...').fill(title)
   await page.getByLabel('Importe').fill(amount)
@@ -382,7 +382,7 @@ test('smart entry asks which similar person to use before saving', async ({ page
   await expect(page.getByText(/Movimiento creado desde entrada inteligente/i)).toBeVisible()
   expect(asked).toBe(true)
 
-  await page.getByRole('button', { name: /Resumen/i }).click()
+  await page.locator('.tabs').getByRole('button', { name: /Resumen/i }).click({ force: true })
   await expect(page.getByRole('article').filter({ hasText: 'Alex sanchez' })).toContainText('20,00')
   await expect(page.getByRole('article').filter({ hasText: 'Alex casado' })).toContainText('0,00')
   await page.getByRole('button', { name: /Personas/i }).click()
@@ -734,6 +734,47 @@ test('dashboard has editable WhatsApp templates, internal reminders and automati
 
   await page.getByRole('button', { name: /Marcar avisos vistos/i }).click()
   await expect(page.getByText(/Avisos internos marcados como vistos/i)).toBeVisible()
+  assertNoErrors()
+})
+
+test('global search, dark mode, risk detector, reminder log, documents and recurring drafts work', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Extras')
+  await addPerson(page, 'Raul Extras', '600222333')
+  await addDebt(page, 'Alquiler extras', '30')
+
+  await page.getByRole('button', { name: /Modo oscuro/i }).click()
+  await expect(page.locator('main.dark-mode')).toBeVisible()
+
+  await page.getByLabel('Buscar todo').fill('Raul Extras')
+  await expect(page.locator('.global-results')).toContainText('Raul Extras')
+  await page.locator('.global-results').getByRole('button', { name: /Raul Extras/i }).click()
+  const personSheet = page.getByRole('dialog', { name: /Ficha de Raul Extras/i })
+  await expect(personSheet).toBeVisible()
+
+  await personSheet.getByRole('button', { name: /Avisado hoy/i }).click()
+  await expect(page.getByText(/Seguimiento de Raul Extras actualizado/i)).toBeVisible()
+  await expect(personSheet).toContainText('Aviso manual')
+
+  await page.getByRole('dialog', { name: /Ficha de Raul Extras/i }).locator('input[type="file"][accept="image/*,.pdf,.txt"]').setInputFiles({
+    name: 'bizum.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('captura de prueba'),
+  })
+  await expect(page.getByText(/Documento guardado/i)).toBeVisible()
+  await expect(personSheet).toContainText('bizum.txt')
+
+  await page.getByRole('dialog', { name: /Ficha de Raul Extras/i }).getByRole('button', { name: /Recurrente/i }).dispatchEvent('click')
+  await expect(page.getByRole('heading', { name: 'Nuevo movimiento' })).toBeVisible()
+  await expect(page.getByPlaceholder('Cena, alquiler, bizum...')).toHaveValue('Cuota recurrente de Raul Extras')
+  await expect(page.getByLabel('Repetir')).toHaveValue('monthly')
+
+  await page.locator('.tabs').getByRole('button', { name: /Resumen/i }).click({ force: true })
+  await expect(page.locator('.weekly-panel')).toContainText('Semana')
+  await expect(page.locator('.detector-panel')).toContainText('Raul Extras')
+  await page.locator('.detector-panel').getByRole('button', { name: /Habitual/i }).click()
+  await expect(page.getByText(/Seguimiento de Raul Extras actualizado/i)).toBeVisible()
+  await expect(page.locator('.reminder-log-panel')).toContainText('Raul Extras')
   assertNoErrors()
 })
 
