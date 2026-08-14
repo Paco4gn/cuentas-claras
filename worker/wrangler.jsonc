@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cazamorosos-push-relay",
+  "main": "push-relay.js",
+  "compatibility_date": "2026-08-14",
+  "vars": {
+    "APP_URL": "https://paco4gn.github.io/cuentas-claras/?avisos=pagos",
+    "FIREBASE_PROJECT_ID": "cuentas-claras-paco4gn"
+  }
+}

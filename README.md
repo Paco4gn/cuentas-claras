@@ -79,26 +79,42 @@ Los grupos compartidos se guardan en `groups/{groupId}`. El acceso se concede po
 
 ### Avisos push en iPhone
 
-El permiso de notificaciones del navegador no basta por si solo: para que el iPhone avise aunque la app este cerrada hay que activar Firebase Cloud Messaging y desplegar Cloud Functions.
+El permiso de notificaciones del navegador no basta por si solo: para que el iPhone avise aunque la app este cerrada hace falta un relay siempre activo. Para mantenerlo gratuito se usa Cloudflare Worker Free.
 
 1. En Firebase Console, ve a Project settings > Cloud Messaging > Web Push certificates y genera una clave VAPID.
 2. Anade esa clave como `VITE_FIREBASE_VAPID_KEY` en el entorno de build.
-3. Instala y despliega Functions:
+3. Entra en Cloudflare y autentica Wrangler:
 
 ```bash
-cd functions
-npm install
-cd ..
-npx firebase-tools deploy --only functions,firestore:rules --project cuentas-claras-paco4gn
+npx wrangler login
 ```
 
-4. Vuelve a generar y publicar la web:
+4. Carga los secretos de Firebase en Cloudflare desde el JSON de cuenta de servicio:
+
+```powershell
+.\scripts\set-cloudflare-push-secrets.ps1 -ServiceAccountJson "C:\ruta\a\cuentas-claras-paco4gn-firebase-adminsdk.json"
+```
+
+5. Despliega el relay:
+
+```bash
+cd worker
+npx wrangler deploy
+```
+
+6. Copia la URL del Worker en `.env.production`:
+
+```bash
+VITE_PUSH_RELAY_URL=https://cazamorosos-push-relay.<tu-subdominio>.workers.dev
+```
+
+7. Vuelve a generar y publicar la web:
 
 ```bash
 npm run build
 ```
 
-En el iPhone, abre CazaMorosos desde el icono de la pantalla de inicio y pulsa `Activar notificaciones`. La app guardara el token en `users/{uid}/notificationTokens` y la funcion `notifyPaymentConfirmation` mandara el push cuando alguien pulse que ha pagado.
+En el iPhone, abre CazaMorosos desde el icono de la pantalla de inicio y pulsa `Activar notificaciones`. La app guardara el token en `users/{uid}/notificationTokens` y el Worker mandara el push cuando alguien pulse que ha pagado.
 
 Firebase Storage es opcional y no hace falta para esta app. Si algun dia quieres guardar fotos en Storage, Firebase exige actualizar el proyecto a plan de pago; entonces pon `VITE_USE_FIREBASE_STORAGE=true`, activa Cloud Storage en Firebase Console y despliega:
 

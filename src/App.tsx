@@ -270,6 +270,7 @@ const dayMs = 86_400_000
 const me: ActorId = 'me'
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 const firebaseVapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined
+const pushRelayUrl = import.meta.env.VITE_PUSH_RELAY_URL as string | undefined
 
 const cleanForFirestore = <T,>(value: T) => JSON.parse(JSON.stringify(value)) as T
 const userDoc = (userId: string) => doc(firestore!, 'users', userId)
@@ -281,6 +282,16 @@ const groupRecordsCollection = (groupId: string) => collection(firestore!, 'grou
 const ledgerPeopleCollection = (ledgerId: string, sharedLedger: boolean) => sharedLedger ? groupPeopleCollection(ledgerId) : peopleCollection(ledgerId)
 const ledgerRecordsCollection = (ledgerId: string, sharedLedger: boolean) => sharedLedger ? groupRecordsCollection(ledgerId) : recordsCollection(ledgerId)
 const firestoreBatchLimit = 450
+
+async function notifyPushRelay(payload: { ownerId: string; confirmationId: string }) {
+  if (!pushRelayUrl) return
+  const endpoint = new URL('/notify-payment', pushRelayUrl)
+  await fetch(endpoint.toString(), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
 
 const statusLabels: Record<RecordStatus, string> = {
   'por-pagar': 'Por pagar',
@@ -5365,6 +5376,9 @@ function PublicQrCard({ payload }: { payload: PublicQrPayload }) {
                       createdAt: new Date().toISOString(),
                     } satisfies PaymentConfirmation
                     await setDoc(paymentConfirmationDoc(payload.ownerId, confirmationId), cleanForFirestore(confirmation))
+                    notifyPushRelay({ ownerId: payload.ownerId, confirmationId }).catch(() => {
+                      // La confirmacion ya esta guardada; el aviso push puede reintentarse desde la app.
+                    })
                     setConfirmationStatus('sent')
                   } catch {
                     setConfirmationStatus('error')
