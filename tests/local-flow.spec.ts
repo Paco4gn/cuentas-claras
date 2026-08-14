@@ -203,6 +203,39 @@ test('quick payment from a person balance creates an editable payment draft', as
   assertNoErrors()
 })
 
+test('person sheet can register a partial payment and keep the remaining balance', async ({ page }) => {
+  const assertNoErrors = await expectNoConsoleErrors(page)
+  await createLocalAccount(page, 'Paco Sheet Partial')
+  await addPerson(page, 'Raul Parcial')
+  await addDebt(page, 'Cena parcial', '20')
+
+  await page.getByLabel('Abrir ficha de persona').first().click()
+  const personSheet = page.getByRole('dialog', { name: /Ficha de Raul Parcial/i })
+  await expect(personSheet).toBeVisible()
+  await expect(personSheet.locator('.follow-chip', { hasText: 'Normal' })).toBeVisible()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Cuanto ha pagado Raul Parcial')
+    await dialog.accept('7')
+  })
+  await personSheet.getByRole('button', { name: /Pago parcial/i }).click()
+  await expect(page.getByText(/Pago parcial de 7,00/i)).toBeVisible()
+  await expect(personSheet.locator('.follow-chip', { hasText: 'Revisar' })).toBeVisible()
+  await expect(personSheet.getByText('13,00')).toBeVisible()
+
+  await personSheet.getByRole('button', { name: /Avisado hoy/i }).click()
+  await expect(personSheet.locator('.follow-chip', { hasText: 'Avisado' })).toBeVisible()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Cuando promete pagar Raul Parcial')
+    await dialog.accept('2026-08-20')
+  })
+  await personSheet.getByRole('button', { name: /Prometio/i }).click()
+  await expect(personSheet.locator('.follow-chip', { hasText: 'Prometio pagar' })).toBeVisible()
+  await expect(personSheet.getByText('2026-08-20')).toBeVisible()
+  assertNoErrors()
+})
+
 test('balance list can hide and restore zero-balance people', async ({ page }) => {
   const assertNoErrors = await expectNoConsoleErrors(page)
   await createLocalAccount(page, 'Paco Zero Filter')

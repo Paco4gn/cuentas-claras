@@ -1833,7 +1833,7 @@ function App() {
   const settlementPlan = useMemo(() => settlementPlanFromBalances(balances), [balances])
   const selectedPerson = selectedPersonId ? people.find((person) => person.id === selectedPersonId) ?? null : null
   const selectedPersonRecords = useMemo(
-    () => (selectedPerson ? records.filter((record) => recordTouchesPerson(record, selectedPerson.id)) : []),
+    () => (selectedPerson ? sortRecords(records.filter((record) => recordTouchesPerson(record, selectedPerson.id))) : []),
     [records, selectedPerson],
   )
   const selectedPersonOpenRecords = useMemo(
@@ -3319,6 +3319,10 @@ function App() {
     setNotice(`Seguimiento de ${person.name} actualizado.`)
   }
 
+  async function persistPersonFollowQuiet(person: Person, updates: Partial<Pick<Person, 'followStatus' | 'promisedDate' | 'lastReminderAt' | 'lastPaymentAt'>>) {
+    await persistPerson({ ...person, ...updates })
+  }
+
   async function markPersonReminded(person: Person) {
     await updatePersonFollow(person, { followStatus: 'avisado', lastReminderAt: new Date().toISOString() })
   }
@@ -3365,7 +3369,7 @@ function App() {
       createdAt: new Date().toISOString(),
     }
     await persistRecord(paymentRecord)
-    await updatePersonFollow(person, { followStatus: amountToSave >= Math.abs(balance) ? 'normal' : 'revisar', lastPaymentAt: new Date().toISOString() })
+    await persistPersonFollowQuiet(person, { followStatus: amountToSave >= Math.abs(balance) ? 'normal' : 'revisar', lastPaymentAt: new Date().toISOString() })
     if (syncMode === 'local') await refreshData()
     setNotice(`Pago parcial de ${formatMoney(amountToSave)} registrado para ${person.name}.`)
   }
