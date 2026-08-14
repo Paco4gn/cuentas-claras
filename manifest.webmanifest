@@ -6,6 +6,44 @@
   "display": "standalone",
   "background_color": "#f6f7f2",
   "theme_color": "#0f766e",
+  "shortcuts": [
+    {
+      "name": "Añadir movimiento",
+      "short_name": "Movimiento",
+      "url": "/cuentas-claras/?accion=nuevo",
+      "icons": [
+        {
+          "src": "/cuentas-claras/favicon.svg",
+          "sizes": "128x128",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Subir ticket",
+      "short_name": "Ticket",
+      "url": "/cuentas-claras/?accion=ticket",
+      "icons": [
+        {
+          "src": "/cuentas-claras/favicon.svg",
+          "sizes": "128x128",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Panel de avisos",
+      "short_name": "Avisos",
+      "url": "/cuentas-claras/?avisos=pagos",
+      "icons": [
+        {
+          "src": "/cuentas-claras/favicon.svg",
+          "sizes": "128x128",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ],
   "icons": [
     {
       "src": "/cuentas-claras/favicon.svg",
