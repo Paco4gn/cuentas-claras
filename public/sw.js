@@ -22,6 +22,30 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
+self.addEventListener('push', (event) => {
+  const fallback = { title: 'Pago avisado', body: 'Alguien ha confirmado un pago en CazaMorosos.', url: withBase('/?avisos=pagos') }
+  let payload = fallback
+  try {
+    const data = event.data?.json() || {}
+    payload = {
+      title: data.notification?.title || data.title || fallback.title,
+      body: data.notification?.body || data.body || fallback.body,
+      url: data.data?.url || data.url || fallback.url,
+    }
+  } catch {
+    payload = fallback
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      badge: withBase('/favicon.svg'),
+      icon: withBase('/favicon.svg'),
+      tag: 'payment-confirmation',
+      data: { url: payload.url },
+    }),
+  )
+})
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const targetUrl = event.notification.data?.url || withBase('/?avisos=pagos')

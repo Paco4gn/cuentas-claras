@@ -22,3 +22,4 @@ export const firestore: Firestore | null = firebaseApp ? getFirestore(firebaseAp
 export const useFirebaseStorage = import.meta.env.VITE_USE_FIREBASE_STORAGE === 'true'
 export const firebaseStorage: FirebaseStorage | null = firebaseApp && useFirebaseStorage ? getStorage(firebaseApp) : null
 export const googleProvider = new GoogleAuthProvider()
+export { firebaseConfig }

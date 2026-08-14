@@ -69,12 +69,36 @@ VITE_FIREBASE_PROJECT_ID=...
 VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_VAPID_KEY=...
 VITE_USE_FIREBASE_STORAGE=false
 ```
 
 Firestore ya esta creado en `eur3` y las reglas se han desplegado. Para que Auth funcione hay que activar en Firebase Console los proveedores `Email/Password` y `Google` en Authentication > Sign-in method, y autorizar `paco4gn.github.io` como dominio.
 
 Los grupos compartidos se guardan en `groups/{groupId}`. El acceso se concede por el email autenticado en `memberEmails`; cada grupo tiene sus propias personas y movimientos.
+
+### Avisos push en iPhone
+
+El permiso de notificaciones del navegador no basta por si solo: para que el iPhone avise aunque la app este cerrada hay que activar Firebase Cloud Messaging y desplegar Cloud Functions.
+
+1. En Firebase Console, ve a Project settings > Cloud Messaging > Web Push certificates y genera una clave VAPID.
+2. Anade esa clave como `VITE_FIREBASE_VAPID_KEY` en el entorno de build.
+3. Instala y despliega Functions:
+
+```bash
+cd functions
+npm install
+cd ..
+npx firebase-tools deploy --only functions,firestore:rules --project cuentas-claras-paco4gn
+```
+
+4. Vuelve a generar y publicar la web:
+
+```bash
+npm run build
+```
+
+En el iPhone, abre CazaMorosos desde el icono de la pantalla de inicio y pulsa `Activar notificaciones`. La app guardara el token en `users/{uid}/notificationTokens` y la funcion `notifyPaymentConfirmation` mandara el push cuando alguien pulse que ha pagado.
 
 Firebase Storage es opcional y no hace falta para esta app. Si algun dia quieres guardar fotos en Storage, Firebase exige actualizar el proyecto a plan de pago; entonces pon `VITE_USE_FIREBASE_STORAGE=true`, activa Cloud Storage en Firebase Console y despliega:
 

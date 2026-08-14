@@ -83,6 +83,14 @@ service cloud.firestore {
           && request.resource.data.ownerId == resource.data.ownerId
           && request.resource.data.status in ['pending', 'accepted', 'dismissed'];
       }
+
+      match /notificationTokens/{tokenId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0;
+      }
     }
 
     match /groups/{groupId} {

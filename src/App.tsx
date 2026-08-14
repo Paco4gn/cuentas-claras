@@ -21,6 +21,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore'
+import { getMessaging, getToken, isSupported as isMessagingSupported } from 'firebase/messaging'
 import { deleteObject, getDownloadURL, ref as storageRef, uploadString } from 'firebase/storage'
 import {
   ArrowDownLeft,
@@ -67,7 +68,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { firebaseAuth, firebaseStorage, firestore, googleProvider, isFirebaseConfigured, useFirebaseStorage } from './firebase'
+import { firebaseApp, firebaseAuth, firebaseStorage, firestore, googleProvider, isFirebaseConfigured, useFirebaseStorage } from './firebase'
 
 type ActorId = 'me' | string
 type RecordKind = 'split' | 'debt' | 'payment'
@@ -263,10 +264,12 @@ const publicQrPhotoMaxLength = 7000
 const publicQrDoc = (qrId: string) => doc(firestore!, 'publicQrs', qrId)
 const paymentConfirmationsCollection = (userId: string) => collection(firestore!, 'users', userId, 'paymentConfirmations')
 const paymentConfirmationDoc = (userId: string, confirmationId: string) => doc(firestore!, 'users', userId, 'paymentConfirmations', confirmationId)
+const notificationTokenDoc = (userId: string, token: string) => doc(firestore!, 'users', userId, 'notificationTokens', encodeURIComponent(token))
 const today = new Date().toISOString().slice(0, 10)
 const dayMs = 86_400_000
 const me: ActorId = 'me'
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+const firebaseVapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined
 
 const cleanForFirestore = <T,>(value: T) => JSON.parse(JSON.stringify(value)) as T
 const userDoc = (userId: string) => doc(firestore!, 'users', userId)
@@ -3082,11 +3085,48 @@ function App() {
       setNotice('Notificaciones no activadas.')
       return
     }
+    if (!currentUser || !firestore || syncMode !== 'cloud') {
+      const body = 'Permiso activo. Para avisos reales de pagos necesitas entrar con Firebase.'
+      await showAppNotification(appName, body)
+      setNotice(body)
+      return
+    }
+    if (!firebaseApp || !firebaseVapidKey) {
+      const body = 'Permiso activo, pero falta configurar VAPID/FCM para recibir avisos con la app cerrada.'
+      await showAppNotification(appName, body)
+      setNotice(body)
+      return
+    }
+    const messagingSupported = await isMessagingSupported().catch(() => false)
+    if (!messagingSupported) {
+      const body = 'Este navegador no soporta Firebase Messaging para push cerrado.'
+      await showAppNotification(appName, body)
+      setNotice(body)
+      return
+    }
     const due = dueRecords[0]
     const body = due ? `${due.title}: ${dueLabel(due)}` : 'Listo: te avisare cuando alguien confirme que ha pagado.'
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.ready.catch(() => null) : null
+    const messaging = getMessaging(firebaseApp)
+    const token = await getToken(messaging, {
+      vapidKey: firebaseVapidKey,
+      serviceWorkerRegistration: registration ?? undefined,
+    }).catch(() => '')
+    if (!token) {
+      setNotice('No se pudo registrar este iPhone para push. Revisa VAPID/FCM y vuelve a probar.')
+      return
+    }
+    await setDoc(notificationTokenDoc(currentUser.id, token), {
+      token,
+      userId: currentUser.id,
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    }, { merge: true })
     await showAppNotification(appName, body)
     await updateAppBadge(paymentConfirmations.length)
-    setNotice('Notificaciones activadas. En iPhone funcionan mejor con la app anadida a pantalla de inicio.')
+    setNotice('Push real activado para este iPhone. Si la app esta cerrada, Firebase podra avisarte.')
   }
 
   async function savePin() {

@@ -671,7 +671,7 @@ test('local dashboard can enable iPhone-style payment notifications', async ({ p
 
   await createLocalAccount(page, 'Paco Notify Local')
   await page.getByRole('button', { name: /Activar notificaciones/i }).click()
-  await expect(page.getByText(/Notificaciones activadas/i)).toBeVisible()
+  await expect(page.getByText(/Permiso activo/i)).toBeVisible()
   const notificationCalls = await page.evaluate(() => (window as typeof window & { __notificationCalls: { title: string; options?: NotificationOptions }[] }).__notificationCalls)
   expect(notificationCalls.some((call) => call.title === 'CazaMorosos')).toBe(true)
   assertNoErrors()
