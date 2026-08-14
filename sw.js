@@ -1,4 +1,4 @@
-const cacheName = 'cazamorosos-v5'
+const cacheName = 'cazamorosos-v6'
 const scopeUrl = new URL(self.registration.scope)
 const basePath = scopeUrl.pathname.replace(/\/$/, '')
 const withBase = (path) => `${basePath}${path}`
@@ -30,7 +30,7 @@ self.addEventListener('push', (event) => {
     payload = {
       title: data.notification?.title || data.title || fallback.title,
       body: data.notification?.body || data.body || fallback.body,
-      url: data.data?.url || data.url || fallback.url,
+      url: data.data?.url || data.fcmOptions?.link || data.webpush?.fcm_options?.link || data.url || fallback.url,
     }
   } catch {
     payload = fallback
